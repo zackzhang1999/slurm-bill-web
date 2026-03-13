@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+
+{% block title %}作业查询 - Slurm计费管理系统{% endblock %}
+{% block page_title %}作业查询{% endblock %}
+{% block page_subtitle %}查看作业详情和资源使用{% endblock %}
+
+{% block content %}
+<!-- 筛选栏 -->
+<div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200 mb-6">
+    <div class="flex flex-wrap items-center gap-4">
+        {% if is_admin %}
+        <div class="flex items-center gap-2">
+            <label class="text-sm text-slate-600">用户:</label>
+            <input type="text" id="filter-user" class="px-3 py-2 border border-slate-300 rounded-lg text-sm w-32" placeholder="用户名">
+        </div>
+        <div class="flex items-center gap-2">
+            <label class="text-sm text-slate-600">账户:</label>
+            <input type="text" id="filter-account" class="px-3 py-2 border border-slate-300 rounded-lg text-sm w-32" placeholder="账户名">
+        </div>
+        {% else %}
+        <div class="flex items-center gap-2">
+            <span class="text-sm text-slate-600">当前用户:</span>
+            <span class="px-3 py-2 bg-slate-100 rounded-lg text-sm font-medium text-slate-800">{{ username }}</span>
+        </div>
+        {% endif %}
+        <div class="flex items-center gap-2">
+            <label class="text-sm text-slate-600">时间范围:</label>
+            <select id="filter-days" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                <option value="7">最近7天</option>
+                <option value="30" selected>最近30天</option>
+                <option value="90">最近90天</option>
+            </select>
+        </div>
+        <div class="flex items-center gap-2 ml-auto">
+            <button onclick="loadJobs()" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm">
+                <i class="fas fa-search mr-1"></i>查询
+            </button>
+            <button onclick="exportJobs()" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 text-sm">
+                <i class="fas fa-download mr-1"></i>导出
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+        <p class="text-sm text-slate-500">作业总数</p>
+        <p class="text-2xl font-bold text-slate-800" id="stat-total-jobs">0</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+        <p class="text-sm text-slate-500">总费用</p>
+        <p class="text-2xl font-bold text-emerald-600" id="stat-total-cost">¥0.00</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+        <p class="text-sm text-slate-500">CPU核时</p>
+        <p class="text-2xl font-bold text-blue-600" id="stat-cpu-hours">0</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+        <p class="text-sm text-slate-500">GPU卡时</p>
+        <p class="text-2xl font-bold text-violet-600" id="stat-gpu-hours">0</p>
+    </div>
+</div>
+
+<!-- 作业列表 -->
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full table-modern">
+            <thead>
+                <tr>
+                    <th class="px-4 py-3 text-left">作业ID</th>
+                    {% if is_admin %}
+                    <th class="px-4 py-3 text-left">用户</th>
+                    <th class="px-4 py-3 text-left">账户</th>
+                    {% endif %}
+                    <th class="px-4 py-3 text-left">分区</th>
+                    <th class="px-4 py-3 text-center">状态</th>
+                    <th class="px-4 py-3 text-right">CPU</th>
+                    <th class="px-4 py-3 text-right">GPU</th>
+                    <th class="px-4 py-3 text-right">时长</th>
+                    <th class="px-4 py-3 text-right">费用</th>
+                    <th class="px-4 py-3 text-center">操作</th>
+                </tr>
+            </thead>
+            <tbody id="jobs-table">
+                <!-- Dynamic content -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Job Detail Modal -->
+<div id="job-detail-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4">
+        <div class="p-6 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-info-circle text-primary-500 mr-2"></i>
+                作业详情
+            </h3>
+            <button onclick="closeModal('job-detail-modal')" class="text-slate-400 hover:text-slate-600">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="p-6" id="job-detail-content">
+            <!-- Dynamic content -->
+        </div>
+        <div class="p-6 border-t border-slate-200 flex justify-end">
+            <button onclick="closeModal('job-detail-modal')" class="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">
+                关闭
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allJobs = [];
+const isAdmin = {{ 'true' if is_admin else 'false' }};
+
+async function loadJobs() {
+    try {
+        showLoading();
+        {% if is_admin %}
+        const user = document.getElementById('filter-user').value;
+        const account = document.getElementById('filter-account').value;
+        {% else %}
+        const user = '{{ username }}';
+        const account = '';
+        {% endif %}
+        const days = document.getElementById('filter-days').value;
+        
+        let url = `/api/jobs?days=${days}&limit=500`;
+        if (user) url += `&user=${encodeURIComponent(user)}`;
+        if (account) url += `&account=${encodeURIComponent(account)}`;
+        
+        const response = await fetch(url);
+        const result = await response.json();
+        
+        if (!result.success) throw new Error(result.error);
+        
+        allJobs = result.data;
+        renderJobs();
+        updateStats();
+    } catch (error) {
+        console.error('加载作业失败:', error);
+        alert('加载作业失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function renderJobs() {
+    const tbody = document.getElementById('jobs-table');
+    tbody.innerHTML = '';
+    
+    allJobs.forEach((job, index) => {
+        const stateClass = job.state === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 
+                          job.state === 'FAILED' ? 'bg-red-100 text-red-700' : 
+                          job.state === 'CANCELLED' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700';
+        
+        let html = `
+            <tr class="fade-in" style="animation-delay: ${index * 0.01}s">
+                <td class="px-4 py-3 font-mono text-sm">${job.job_id}</td>
+        `;
+        
+        if (isAdmin) {
+            html += `
+                <td class="px-4 py-3">${job.user}</td>
+                <td class="px-4 py-3">${job.account}</td>
+            `;
+        }
+        
+        html += `
+                <td class="px-4 py-3">${job.partition}</td>
+                <td class="px-4 py-3 text-center"><span class="px-2 py-1 rounded text-xs ${stateClass}">${job.state}</span></td>
+                <td class="px-4 py-3 text-right">${job.ncpus}</td>
+                <td class="px-4 py-3 text-right">${job.alloc_gpus || 0}</td>
+                <td class="px-4 py-3 text-right font-mono text-sm">${job.elapsed || '-'}</td>
+                <td class="px-4 py-3 text-right font-medium">${formatMoney(parseFloat(job.cost))}</td>
+                <td class="px-4 py-3 text-center">
+                    <button onclick="viewJobDetail('${job.job_id}')" class="text-primary-600 hover:text-primary-700">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+        
+        tbody.innerHTML += html;
+    });
+}
+
+function updateStats() {
+    const totalJobs = allJobs.length;
+    const totalCost = allJobs.reduce((sum, j) => sum + parseFloat(j.cost || 0), 0);
+    
+    // Calculate CPU and GPU hours from elapsed time
+    let cpuHours = 0;
+    let gpuHours = 0;
+    
+    allJobs.forEach(job => {
+        const elapsed = job.elapsed || '00:00:00';
+        const parts = elapsed.split(':');
+        let hours = 0;
+        if (parts.length === 3) {
+            hours = parseInt(parts[0]) + parseInt(parts[1])/60 + parseInt(parts[2])/3600;
+        }
+        cpuHours += (job.ncpus || 0) * hours;
+        gpuHours += (job.alloc_gpus || 0) * hours;
+    });
+    
+    document.getElementById('stat-total-jobs').textContent = totalJobs;
+    document.getElementById('stat-total-cost').textContent = formatMoney(totalCost);
+    document.getElementById('stat-cpu-hours').textContent = formatNumber(cpuHours, 1) + 'h';
+    document.getElementById('stat-gpu-hours').textContent = formatNumber(gpuHours, 1) + 'h';
+}
+
+function viewJobDetail(jobId) {
+    const job = allJobs.find(j => j.job_id === jobId);
+    if (!job) return;
+    
+    const stateClass = job.state === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 
+                      job.state === 'FAILED' ? 'bg-red-100 text-red-700' : 
+                      job.state === 'CANCELLED' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700';
+    
+    let html = `
+        <div class="grid grid-cols-2 gap-4 mb-6">
+            <div class="bg-slate-50 rounded-lg p-4">
+                <p class="text-xs text-slate-500 mb-1">作业ID</p>
+                <p class="font-mono text-sm">${job.job_id}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-4">
+                <p class="text-xs text-slate-500 mb-1">作业名称</p>
+                <p class="font-medium">${job.job_name || '-'}</p>
+            </div>
+    `;
+    
+    if (isAdmin) {
+        html += `
+            <div class="bg-slate-50 rounded-lg p-4">
+                <p class="text-xs text-slate-500 mb-1">用户 / 账户</p>
+                <p>${job.user} / ${job.account}</p>
+            </div>
+        `;
+    }
+    
+    html += `
+            <div class="bg-slate-50 rounded-lg p-4">
+                <p class="text-xs text-slate-500 mb-1">分区</p>
+                <p>${job.partition}</p>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-4">
+                <p class="text-xs text-slate-500 mb-1">状态</p>
+                <span class="px-2 py-1 rounded text-xs ${stateClass}">${job.state}</span>
+            </div>
+            <div class="bg-slate-50 rounded-lg p-4">
+                <p class="text-xs text-slate-500 mb-1">运行时长</p>
+                <p class="font-mono">${job.elapsed || '-'}</p>
+            </div>
+        </div>
+        
+        <div class="border-t border-slate-200 pt-4">
+            <h4 class="font-medium text-slate-800 mb-4">资源使用</h4>
+            <div class="grid grid-cols-3 gap-4">
+                <div class="text-center p-4 bg-blue-50 rounded-lg">
+                    <p class="text-2xl font-bold text-blue-700">${job.ncpus}</p>
+                    <p class="text-sm text-blue-600">CPU核心</p>
+                </div>
+                <div class="text-center p-4 bg-violet-50 rounded-lg">
+                    <p class="text-2xl font-bold text-violet-700">${job.alloc_gpus || 0}</p>
+                    <p class="text-sm text-violet-600">GPU卡</p>
+                </div>
+                <div class="text-center p-4 bg-emerald-50 rounded-lg">
+                    <p class="text-2xl font-bold text-emerald-700">${job.nnodes}</p>
+                    <p class="text-sm text-emerald-600">节点数</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="border-t border-slate-200 pt-4 mt-4">
+            <h4 class="font-medium text-slate-800 mb-4">费用明细</h4>
+            <div class="flex items-center justify-between p-4 bg-emerald-50 rounded-lg">
+                <span class="text-slate-600">总费用</span>
+                <span class="text-2xl font-bold text-emerald-700">${formatMoney(parseFloat(job.cost))}</span>
+            </div>
+            <p class="text-xs text-slate-500 mt-2">计费单位: ${job.billing_units || '-'}</p>
+        </div>
+        
+        <div class="border-t border-slate-200 pt-4 mt-4">
+            <h4 class="font-medium text-slate-800 mb-4">时间信息</h4>
+            <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                    <span class="text-slate-500">提交时间</span>
+                    <span class="font-mono">${job.submit_time || '-'}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">开始时间</span>
+                    <span class="font-mono">${job.start_time || '-'}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-500">结束时间</span>
+                    <span class="font-mono">${job.end_time || '-'}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('job-detail-content').innerHTML = html;
+    document.getElementById('job-detail-modal').classList.remove('hidden');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.add('hidden');
+}
+
+function exportJobs() {
+    const headers = ['作业ID', '作业名', {% if is_admin %}'用户', '账户', {% endif %}'分区', '状态', 'CPU', 'GPU', '节点', '时长', '费用', '提交时间', '结束时间'];
+    const csv = [
+        headers.join(','),
+        ...allJobs.map(j => [
+            j.job_id, j.job_name || '', {% if is_admin %}j.user, j.account, {% endif %}j.partition, j.state,
+            j.ncpus, j.alloc_gpus || 0, j.nnodes, j.elapsed || '', j.cost,
+            j.submit_time || '', j.end_time || ''
+        ].join(','))
+    ].join('\n');
+    
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `jobs_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+}
+
+document.addEventListener('DOMContentLoaded', loadJobs);
+</script>
+{% endblock %}

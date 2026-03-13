@@ -1,0 +1,398 @@
+{% extends "base.html" %}
+
+{% block title %}仪表盘 - Slurm计费管理系统{% endblock %}
+{% block page_title %}仪表盘{% endblock %}
+{% block page_subtitle %}系统概览与实时统计{% endblock %}
+
+{% block content %}
+<!-- 欢迎提示 - 仅普通用户可见 -->
+<div id="user-welcome" class="hidden mb-6 bg-gradient-to-r from-primary-500 to-primary-700 rounded-xl p-6 text-white">
+    <div class="flex items-center gap-4">
+        <div class="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center">
+            <i class="fas fa-user text-2xl"></i>
+        </div>
+        <div>
+            <h3 class="text-xl font-semibold">欢迎使用Slurm计费系统</h3>
+            <p class="text-primary-100">您可以在此查看个人的作业记录和费用统计</p>
+        </div>
+        <a href="/user/self" class="ml-auto px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-white transition-colors">
+            查看我的账户 <i class="fas fa-arrow-right ml-2"></i>
+        </a>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <!-- 今日费用 -->
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 card-hover">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-slate-500">今日费用</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="today-cost">¥0.00</p>
+            </div>
+            <div class="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
+                <i class="fas fa-coins text-emerald-600 text-xl"></i>
+            </div>
+        </div>
+        <div class="mt-4 flex items-center text-sm">
+            <span class="text-slate-500" id="today-jobs">0 个作业</span>
+        </div>
+    </div>
+    
+    <!-- 本月费用 -->
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 card-hover">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-slate-500">本月费用</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="month-cost">¥0.00</p>
+            </div>
+            <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                <i class="fas fa-calendar-alt text-blue-600 text-xl"></i>
+            </div>
+        </div>
+        <div class="mt-4 flex items-center text-sm">
+            <span class="text-blue-600 font-medium">累计计费</span>
+        </div>
+    </div>
+    
+    <!-- 作业数 -->
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 card-hover">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-slate-500">总作业数</p>
+                <p class="text-2xl font-bold text-slate-800 mt-1" id="total-jobs">0</p>
+            </div>
+            <div class="w-12 h-12 bg-violet-100 rounded-xl flex items-center justify-center">
+                <i class="fas fa-tasks text-violet-600 text-xl"></i>
+            </div>
+        </div>
+        <div class="mt-4 flex items-center text-sm">
+            <span class="text-slate-500">历史累计</span>
+        </div>
+    </div>
+    
+    <!-- 当前余额 - 普通用户显示余额，管理员显示系统余额 -->
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 card-hover">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-slate-500" id="balance-label">当前余额</p>
+                <p class="text-2xl font-bold text-amber-600 mt-1" id="total-balance">¥0.00</p>
+            </div>
+            <div class="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center">
+                <i class="fas fa-wallet text-amber-600 text-xl"></i>
+            </div>
+        </div>
+        <div class="mt-4 flex items-center text-sm">
+            <span class="text-slate-500" id="balance-subtext">可用额度</span>
+        </div>
+    </div>
+</div>
+
+<!-- 图表区域 -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+    <!-- 费用趋势图 -->
+    <div class="lg:col-span-2 bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+        <div class="flex items-center justify-between mb-6">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-chart-area text-primary-500 mr-2"></i>
+                30日费用趋势
+            </h3>
+            <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500">单位：元</span>
+            </div>
+        </div>
+        <div class="h-72">
+            <canvas id="trend-chart"></canvas>
+        </div>
+    </div>
+    
+    <!-- 分区统计 -->
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+        <h3 class="text-lg font-semibold text-slate-800 mb-6">
+            <i class="fas fa-pie-chart text-primary-500 mr-2"></i>
+            分区费用占比
+        </h3>
+        <div class="h-56">
+            <canvas id="partition-chart"></canvas>
+        </div>
+        <div id="partition-legend" class="mt-4 space-y-2">
+            <!-- 动态生成 -->
+        </div>
+    </div>
+</div>
+
+<!-- 底部区域 -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- 消费排行 - 仅管理员可见 -->
+    <div id="top-users-section" class="bg-white rounded-xl shadow-sm border border-slate-200 hidden">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-trophy text-amber-500 mr-2"></i>
+                消费排行 Top 10
+            </h3>
+        </div>
+        <div class="p-0">
+            <table class="w-full table-modern">
+                <thead>
+                    <tr>
+                        <th class="px-6 py-3 text-left">排名</th>
+                        <th class="px-6 py-3 text-left">用户</th>
+                        <th class="px-6 py-3 text-right">作业数</th>
+                        <th class="px-6 py-3 text-right">费用</th>
+                    </tr>
+                </thead>
+                <tbody id="top-users-table">
+                    <!-- 动态生成 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- 系统概览/个人账户概览 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800" id="overview-title">
+                <i class="fas fa-info-circle text-primary-500 mr-2"></i>
+                账户概览
+            </h3>
+        </div>
+        <div class="p-6">
+            <div class="grid grid-cols-2 gap-6" id="overview-grid">
+                <div class="text-center p-4 bg-slate-50 rounded-lg">
+                    <p class="text-3xl font-bold text-slate-800" id="overview-jobs">0</p>
+                    <p class="text-sm text-slate-500 mt-1">总作业数</p>
+                </div>
+                <div class="text-center p-4 bg-slate-50 rounded-lg">
+                    <p class="text-3xl font-bold text-slate-800" id="overview-users">0</p>
+                    <p class="text-sm text-slate-500 mt-1" id="overview-users-label">分区数</p>
+                </div>
+                <div class="text-center p-4 bg-slate-50 rounded-lg">
+                    <p class="text-3xl font-bold text-emerald-600" id="overview-recharged">¥0</p>
+                    <p class="text-sm text-slate-500 mt-1">累计充值</p>
+                </div>
+                <div class="text-center p-4 bg-slate-50 rounded-lg">
+                    <p class="text-3xl font-bold text-rose-600" id="overview-consumed">¥0</p>
+                    <p class="text-sm text-slate-500 mt-1">累计消费</p>
+                </div>
+            </div>
+            
+            <div class="mt-6 pt-6 border-t border-slate-200">
+                <div class="flex items-center justify-between">
+                    <span class="text-slate-600" id="total-label">累计费用</span>
+                    <span class="text-2xl font-bold text-slate-800" id="system-total-cost">¥0.00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let trendChart = null;
+let partitionChart = null;
+let isAdmin = false;
+
+// 加载仪表盘数据
+async function loadDashboardData() {
+    try {
+        showLoading();
+        const response = await fetch('/api/dashboard');
+        const result = await response.json();
+        
+        if (!result.success) {
+            throw new Error(result.error);
+        }
+        
+        const data = result.data;
+        
+        // 检查用户角色
+        const userInfoRes = await fetch('/api/user/info');
+        const userInfo = await userInfoRes.json();
+        isAdmin = userInfo.data.is_admin;
+        
+        // 根据角色调整界面
+        if (!isAdmin) {
+            document.getElementById('user-welcome').classList.remove('hidden');
+            document.getElementById('top-users-section').classList.add('hidden');
+            document.getElementById('overview-title').innerHTML = '<i class="fas fa-user-circle text-primary-500 mr-2"></i>我的账户概览';
+            document.getElementById('overview-users-label').textContent = '信用额度';
+            document.getElementById('balance-label').textContent = '我的余额';
+            document.getElementById('balance-subtext').textContent = '可用额度';
+            document.getElementById('total-label').textContent = '我的累计费用';
+        } else {
+            document.getElementById('user-welcome').classList.add('hidden');
+            document.getElementById('top-users-section').classList.remove('hidden');
+        }
+        
+        // 更新统计卡片
+        document.getElementById('today-cost').textContent = formatMoney(data.today_cost);
+        document.getElementById('today-jobs').textContent = `${data.today_jobs} 个作业`;
+        document.getElementById('month-cost').textContent = formatMoney(data.month_cost);
+        document.getElementById('total-jobs').textContent = data.total_jobs.toLocaleString();
+        document.getElementById('total-balance').textContent = formatMoney(data.balance_stats.total_balance);
+        
+        // 更新概览区域
+        document.getElementById('overview-jobs').textContent = data.total_jobs.toLocaleString();
+        document.getElementById('overview-recharged').textContent = '¥' + formatNumber(data.balance_stats.total_recharged, 0);
+        document.getElementById('overview-consumed').textContent = '¥' + formatNumber(data.balance_stats.total_consumed, 0);
+        document.getElementById('system-total-cost').textContent = formatMoney(data.total_cost);
+        
+        if (isAdmin) {
+            document.getElementById('overview-users').textContent = data.total_users.toLocaleString();
+        } else {
+            // 普通用户显示信用额度
+            document.getElementById('overview-users').textContent = '¥' + formatNumber(data.balance_stats.total_balance + data.balance_stats.total_recharged * 0, 0);
+            // 简化显示
+            document.getElementById('overview-grid').innerHTML = `
+                <div class="text-center p-4 bg-slate-50 rounded-lg">
+                    <p class="text-3xl font-bold text-slate-800">${data.total_jobs}</p>
+                    <p class="text-sm text-slate-500 mt-1">总作业数</p>
+                </div>
+                <div class="text-center p-4 bg-slate-50 rounded-lg">
+                    <p class="text-3xl font-bold text-emerald-600">${formatMoney(data.balance_stats.total_balance)}</p>
+                    <p class="text-sm text-slate-500 mt-1">当前余额</p>
+                </div>
+            `;
+        }
+        
+        // 更新趋势图
+        updateTrendChart(data.daily_trend);
+        
+        // 更新分区图
+        updatePartitionChart(data.partition_stats);
+        
+        // 更新消费排行（仅管理员）
+        if (isAdmin) {
+            updateTopUsers(data.top_users);
+        }
+        
+    } catch (error) {
+        console.error('加载数据失败:', error);
+        alert('加载数据失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function updateTrendChart(dailyTrend) {
+    const ctx = document.getElementById('trend-chart').getContext('2d');
+    
+    const labels = dailyTrend.map(d => d.date);
+    const costs = dailyTrend.map(d => d.daily_cost);
+    
+    if (trendChart) {
+        trendChart.destroy();
+    }
+    
+    trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '日费用',
+                data: costs,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 3,
+                pointBackgroundColor: '#3b82f6',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
+                y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { callback: v => '¥' + v } }
+            }
+        }
+    });
+}
+
+function updatePartitionChart(partitionStats) {
+    const ctx = document.getElementById('partition-chart').getContext('2d');
+    
+    const labels = partitionStats.map(p => p.partition);
+    const costs = partitionStats.map(p => p.total_cost);
+    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+    
+    if (partitionChart) {
+        partitionChart.destroy();
+    }
+    
+    partitionChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: costs,
+                backgroundColor: colors,
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '70%',
+            plugins: { legend: { display: false } }
+        }
+    });
+    
+    // 更新图例
+    const legendContainer = document.getElementById('partition-legend');
+    legendContainer.innerHTML = '';
+    const totalCost = costs.reduce((a, b) => a + b, 0);
+    
+    partitionStats.forEach((p, index) => {
+        const percentage = totalCost > 0 ? ((p.total_cost / totalCost) * 100).toFixed(1) : 0;
+        const color = colors[index % colors.length];
+        
+        legendContainer.innerHTML += `
+            <div class="flex items-center justify-between text-sm">
+                <div class="flex items-center gap-2">
+                    <div class="w-3 h-3 rounded-full" style="background-color: ${color}"></div>
+                    <span class="text-slate-600">${p.partition}</span>
+                </div>
+                <div class="text-right">
+                    <span class="font-medium text-slate-800">${formatMoney(p.total_cost)}</span>
+                    <span class="text-slate-400 ml-1">(${percentage}%)</span>
+                </div>
+            </div>
+        `;
+    });
+}
+
+function updateTopUsers(topUsers) {
+    const tbody = document.getElementById('top-users-table');
+    tbody.innerHTML = '';
+    
+    topUsers.forEach((user, index) => {
+        const rankColors = ['text-amber-500', 'text-slate-400', 'text-amber-700'];
+        const rankIcon = index < 3 ? `<i class="fas fa-crown ${rankColors[index]}"></i>` : `<span class="text-slate-400">${index + 1}</span>`;
+        
+        tbody.innerHTML += `
+            <tr class="fade-in" style="animation-delay: ${index * 0.05}s">
+                <td class="px-6 py-4">${rankIcon}</td>
+                <td class="px-6 py-4">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
+                            <span class="text-primary-600 font-medium text-sm">${user.user.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <span class="font-medium text-slate-800">${user.user}</span>
+                    </div>
+                </td>
+                <td class="px-6 py-4 text-right text-slate-600">${user.job_count}</td>
+                <td class="px-6 py-4 text-right font-medium text-slate-800">${formatMoney(user.total_cost)}</td>
+            </tr>
+        `;
+    });
+}
+
+document.addEventListener('DOMContentLoaded', loadDashboardData);
+</script>
+{% endblock %}

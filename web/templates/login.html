@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - Slurm计费管理系统</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+        
+        .floating {
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        .login-tab {
+            transition: all 0.3s ease;
+        }
+        
+        .login-tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .input-focus:focus {
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4">
+    
+    <div class="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+        <!-- 左侧：介绍 -->
+        <div class="text-white hidden lg:block">
+            <div class="floating">
+                <div class="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center mb-6">
+                    <i class="fas fa-server text-4xl"></i>
+                </div>
+                <h1 class="text-4xl font-bold mb-4">Slurm计费管理系统</h1>
+                <p class="text-lg text-white/80 mb-6">
+                    专业的HPC集群计费管理平台，支持多维度资源计费、余额管理、报表生成等功能。
+                </p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-white/10 rounded-lg p-4">
+                        <i class="fas fa-chart-line text-2xl mb-2"></i>
+                        <p class="font-medium">实时监控</p>
+                        <p class="text-sm text-white/70">作业费用实时统计</p>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-4">
+                        <i class="fas fa-wallet text-2xl mb-2"></i>
+                        <p class="font-medium">余额管理</p>
+                        <p class="text-sm text-white/70">充值扣费一体化</p>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-4">
+                        <i class="fas fa-file-alt text-2xl mb-2"></i>
+                        <p class="font-medium">报表导出</p>
+                        <p class="text-sm text-white/70">多维度数据分析</p>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-4">
+                        <i class="fas fa-shield-alt text-2xl mb-2"></i>
+                        <p class="font-medium">安全认证</p>
+                        <p class="text-sm text-white/70">密码保护用户数据</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 右侧：登录表单 -->
+        <div class="glass-card rounded-2xl p-8 shadow-2xl">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4 lg:hidden">
+                    <i class="fas fa-server text-white text-2xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-800">欢迎回来</h2>
+                <p class="text-gray-500 mt-2">请选择登录方式</p>
+            </div>
+            
+            <!-- 登录方式切换 -->
+            <div class="flex gap-2 mb-6 p-1 bg-slate-100 rounded-lg">
+                <button type="button" onclick="switchLoginType('user')" id="tab-user" class="login-tab active flex-1 py-2 px-4 rounded-md text-sm font-medium text-slate-600 hover:text-slate-800">
+                    <i class="fas fa-user mr-2"></i>普通用户
+                </button>
+                <button type="button" onclick="switchLoginType('admin')" id="tab-admin" class="login-tab flex-1 py-2 px-4 rounded-md text-sm font-medium text-slate-600 hover:text-slate-800">
+                    <i class="fas fa-user-shield mr-2"></i>管理员
+                </button>
+            </div>
+            
+            <!-- 普通用户登录表单 -->
+            <form method="POST" action="{{ url_for('login') }}" id="form-user" class="space-y-4">
+                <input type="hidden" name="login_type" value="user">
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        <i class="fas fa-user mr-1"></i> 用户名
+                    </label>
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            name="username" 
+                            required
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 input-focus transition-all"
+                            placeholder="请输入您的Slurm用户名"
+                            autofocus
+                        >
+                        <div class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <i class="fas fa-id-card"></i>
+                        </div>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        <i class="fas fa-lock mr-1"></i> 密码
+                    </label>
+                    <div class="relative">
+                        <input 
+                            type="password" 
+                            name="user_password" 
+                            required
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 input-focus transition-all"
+                            placeholder="请输入密码"
+                        >
+                        <div class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <i class="fas fa-key"></i>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        首次登录默认密码为 <span class="font-mono bg-gray-100 px-1 rounded">123456</span>，登录后请修改
+                    </p>
+                </div>
+                
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="p-3 rounded-lg {% if category == 'warning' %}bg-amber-50 text-amber-700 border border-amber-200{% else %}bg-red-50 text-red-700 border border-red-200{% endif %} text-sm">
+                                <i class="fas {% if category == 'warning' %}fa-exclamation-triangle{% else %}fa-exclamation-circle{% endif %} mr-1"></i>
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                <button 
+                    type="submit"
+                    class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-indigo-700 hover:to-purple-700 transition-all transform hover:scale-[1.02] shadow-lg"
+                >
+                    <i class="fas fa-sign-in-alt mr-2"></i> 用户登录
+                </button>
+                
+                <p class="text-xs text-gray-400 text-center">
+                    普通用户可查看自己的作业记录和账户余额
+                </p>
+            </form>
+            
+            <!-- 管理员登录表单 -->
+            <form method="POST" action="{{ url_for('login') }}" id="form-admin" class="space-y-4 hidden">
+                <input type="hidden" name="login_type" value="admin">
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        <i class="fas fa-lock mr-1"></i> 管理员密码
+                    </label>
+                    <div class="relative">
+                        <input 
+                            type="password" 
+                            name="password" 
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 input-focus transition-all"
+                            placeholder="请输入管理员密码"
+                        >
+                        <div class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            <i class="fas fa-key"></i>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        默认密码可在 config.yaml 中查看或修改
+                    </p>
+                </div>
+                
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="p-3 rounded-lg bg-red-50 text-red-700 border border-red-200 text-sm">
+                                <i class="fas fa-exclamation-circle mr-1"></i>
+                                {{ message }}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                <button 
+                    type="submit"
+                    class="w-full bg-gradient-to-r from-slate-700 to-slate-800 text-white py-3 rounded-lg font-medium hover:from-slate-800 hover:to-slate-900 transition-all transform hover:scale-[1.02] shadow-lg"
+                >
+                    <i class="fas fa-user-shield mr-2"></i> 管理员登录
+                </button>
+                
+                <p class="text-xs text-gray-400 text-center">
+                    管理员可管理所有用户、充值、系统设置
+                </p>
+            </form>
+            
+            <div class="mt-6 text-center">
+                <p class="text-xs text-gray-400">
+                    Slurm Billing System v2.2.0
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 背景装饰 -->
+    <div class="fixed inset-0 pointer-events-none overflow-hidden">
+        <div class="absolute -top-40 -right-40 w-80 h-80 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30"></div>
+        <div class="absolute -bottom-40 -left-40 w-80 h-80 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30"></div>
+    </div>
+    
+    <script>
+        function switchLoginType(type) {
+            // 切换标签样式
+            document.getElementById('tab-user').classList.toggle('active', type === 'user');
+            document.getElementById('tab-admin').classList.toggle('active', type === 'admin');
+            
+            // 切换表单显示
+            document.getElementById('form-user').classList.toggle('hidden', type !== 'user');
+            document.getElementById('form-admin').classList.toggle('hidden', type !== 'admin');
+            
+            // 设置对应输入框自动聚焦
+            if (type === 'user') {
+                document.querySelector('#form-user input[name="username"]').focus();
+            } else {
+                document.querySelector('#form-admin input[name="password"]').focus();
+            }
+        }
+        
+        // 页面加载时检查URL参数
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('type') === 'admin') {
+            switchLoginType('admin');
+        }
+    </script>
+</body>
+</html>

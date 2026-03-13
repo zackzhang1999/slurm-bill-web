@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}系统设置 - Slurm计费管理系统{% endblock %}
+{% block page_title %}系统设置{% endblock %}
+{% block page_subtitle %}查看系统配置和费率信息{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- 计费费率配置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-coins text-amber-500 mr-2"></i>
+                计费费率
+            </h3>
+        </div>
+        <div class="p-6">
+            <div class="space-y-4" id="billing-config">
+                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                        <p class="font-medium text-slate-800">CPU 单价</p>
+                        <p class="text-sm text-slate-500">每核心每小时</p>
+                    </div>
+                    <span class="text-xl font-bold text-slate-800" id="cpu-rate">-</span>
+                </div>
+                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                        <p class="font-medium text-slate-800">GPU 单价</p>
+                        <p class="text-sm text-slate-500">每卡每小时</p>
+                    </div>
+                    <span class="text-xl font-bold text-slate-800" id="gpu-rate">-</span>
+                </div>
+                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                        <p class="font-medium text-slate-800">内存单价</p>
+                        <p class="text-sm text-slate-500">每GB每小时</p>
+                    </div>
+                    <span class="text-xl font-bold text-slate-800" id="mem-rate">-</span>
+                </div>
+                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+                    <div>
+                        <p class="font-medium text-slate-800">货币单位</p>
+                        <p class="text-sm text-slate-500">计费货币</p>
+                    </div>
+                    <span class="text-xl font-bold text-slate-800" id="currency">-</span>
+                </div>
+            </div>
+            <div class="mt-4 p-4 bg-amber-50 rounded-lg border border-amber-200">
+                <p class="text-sm text-amber-800">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    如需修改费率配置，请编辑 /etc/slurm-bill/config.yaml 文件
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 分区倍率配置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-server text-blue-500 mr-2"></i>
+                分区倍率
+            </h3>
+        </div>
+        <div class="p-6">
+            <div class="space-y-3" id="partitions-config">
+                <!-- Dynamic content -->
+            </div>
+            <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <p class="text-sm text-blue-800">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    分区倍率用于调整不同分区的计费价格
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 折扣配置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-percentage text-emerald-500 mr-2"></i>
+                折扣配置
+            </h3>
+        </div>
+        <div class="p-6">
+            <div class="mb-6">
+                <h4 class="font-medium text-slate-700 mb-3">账户折扣</h4>
+                <div class="space-y-2" id="account-discounts">
+                    <!-- Dynamic content -->
+                </div>
+            </div>
+            <div>
+                <h4 class="font-medium text-slate-700 mb-3">用户折扣</h4>
+                <div class="space-y-2" id="user-discounts">
+                    <!-- Dynamic content -->
+                </div>
+            </div>
+            <div class="mt-4 p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                <p class="text-sm text-emerald-800">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    折扣为 0 表示无折扣，1.0 表示免费
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 系统信息 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-info-circle text-primary-500 mr-2"></i>
+                系统信息
+            </h3>
+        </div>
+        <div class="p-6">
+            <div class="space-y-4">
+                <div class="flex items-center justify-between py-3 border-b border-slate-100">
+                    <span class="text-slate-600">系统版本</span>
+                    <span class="font-medium">v2.0.0</span>
+                </div>
+                <div class="flex items-center justify-between py-3 border-b border-slate-100">
+                    <span class="text-slate-600">数据库路径</span>
+                    <span class="font-mono text-sm text-slate-800">/var/lib/slurm-bill/billing.db</span>
+                </div>
+                <div class="flex items-center justify-between py-3 border-b border-slate-100">
+                    <span class="text-slate-600">配置文件路径</span>
+                    <span class="font-mono text-sm text-slate-800">/etc/slurm-bill/config.yaml</span>
+                </div>
+                <div class="flex items-center justify-between py-3">
+                    <span class="text-slate-600">Web界面</span>
+                    <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">运行中</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function loadConfig() {
+    try {
+        showLoading();
+        const response = await fetch('/api/config');
+        const result = await response.json();
+        
+        if (!result.success) throw new Error(result.error);
+        
+        const config = result.data;
+        
+        // Billing rates
+        document.getElementById('cpu-rate').textContent = formatMoney(config.billing.cpu_per_hour) + '/核/时';
+        document.getElementById('gpu-rate').textContent = formatMoney(config.billing.gpu_per_hour) + '/卡/时';
+        document.getElementById('mem-rate').textContent = formatMoney(config.billing.memory_gb_per_hour) + '/GB/时';
+        document.getElementById('currency').textContent = config.currency;
+        
+        // Partitions
+        const partitionsDiv = document.getElementById('partitions-config');
+        partitionsDiv.innerHTML = '';
+        if (config.partitions) {
+            Object.entries(config.partitions).forEach(([name, multiplier]) => {
+                const colorClass = multiplier > 1 ? 'text-amber-600' : (multiplier < 1 ? 'text-emerald-600' : 'text-slate-600');
+                partitionsDiv.innerHTML += `
+                    <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                        <span class="font-medium text-slate-800">${name}</span>
+                        <span class="font-bold ${colorClass}">${multiplier}x</span>
+                    </div>
+                `;
+            });
+        }
+        
+        // Discounts
+        const accountDiscountsDiv = document.getElementById('account-discounts');
+        accountDiscountsDiv.innerHTML = '';
+        if (config.discounts && config.discounts.accounts) {
+            Object.entries(config.discounts.accounts).forEach(([account, discount]) => {
+                const percent = (discount * 100).toFixed(0);
+                accountDiscountsDiv.innerHTML += `
+                    <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                        <span class="font-medium text-slate-800">${account}</span>
+                        <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">${percent}% 折扣</span>
+                    </div>
+                `;
+            });
+        }
+        if (accountDiscountsDiv.innerHTML === '') {
+            accountDiscountsDiv.innerHTML = '<p class="text-slate-400 text-sm">暂无账户折扣配置</p>';
+        }
+        
+        const userDiscountsDiv = document.getElementById('user-discounts');
+        userDiscountsDiv.innerHTML = '';
+        if (config.discounts && config.discounts.users) {
+            Object.entries(config.discounts.users).forEach(([user, discount]) => {
+                const percent = (discount * 100).toFixed(0);
+                userDiscountsDiv.innerHTML += `
+                    <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                        <span class="font-medium text-slate-800">${user}</span>
+                        <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">${percent}% 折扣</span>
+                    </div>
+                `;
+            });
+        }
+        if (userDiscountsDiv.innerHTML === '') {
+            userDiscountsDiv.innerHTML = '<p class="text-slate-400 text-sm">暂无用户折扣配置</p>';
+        }
+    } catch (error) {
+        console.error('加载配置失败:', error);
+    } finally {
+        hideLoading();
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadConfig);
+</script>
+{% endblock %}

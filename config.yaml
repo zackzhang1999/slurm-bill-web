@@ -1,0 +1,137 @@
+# Slurm Billing System 配置文件
+# 路径: /etc/slurm-bill/config.yaml
+
+# ==================== 计费费率配置 ====================
+billing:
+  # 基础费率（货币单位：人民币 CNY）
+  cpu_per_hour: 100          # 每 CPU 核心每小时费用（元）
+  memory_gb_per_hour: 0.02    # 每 GB 内存每小时费用（元）
+  gpu_per_hour: 200.00          # 每 GPU 卡每小时费用（元）
+  node_per_hour: 0.00         # 整节点每小时额外费用（元），0 表示不使用
+  
+  # 计费选项
+  currency: "CNY"             # 货币单位
+  min_charge: 0.01            # 最低消费（元）
+  rounding: "0.01"            # 费用四舍五入精度
+  
+  # 计费模式
+  # 可选值: "linear" (线性计费), "tiered" (阶梯计费)
+  mode: "linear"
+  
+  # 阶梯计费配置（仅在 mode 为 tiered 时生效）
+  tiers:
+    - limit: 1000             # 0-1000 核时
+      multiplier: 1.0
+    - limit: 5000             # 1001-5000 核时
+      multiplier: 0.9         # 9 折优惠
+    - limit: 10000            # 5001-10000 核时
+      multiplier: 0.8         # 8 折优惠
+    - limit: 999999999        # 10000 核时以上
+      multiplier: 0.7         # 7 折优惠
+
+# ==================== 分区倍率配置 ====================
+# 不同分区可以使用不同的计费倍率
+partitions:
+  # 默认倍率
+  default_multiplier: 1.0
+  
+  # 特定分区配置
+  normal: 1.0
+  cpu: 1.0
+  gpu: 1.5                    # GPU 分区额外 1.5 倍
+  debug: 0.5                  # Debug 分区半价
+  high_mem: 1.2               # 大内存分区 1.2 倍
+
+# ==================== 折扣配置 ====================
+discounts:
+  # 账户级别折扣 (0.0 - 1.0, 1.0 表示免费)
+  accounts:
+    # admin 账户免费
+    admin: 1.0
+    # research 账户 8 折
+    research: 0.2
+    # student 账户 5 折
+    student: 0.5
+  
+  # 用户级别折扣（优先级高于账户折扣）
+  users:
+    # 特定用户免费
+    # root: 1.0
+    # 特定用户 8 折
+    # professor_zhang: 0.2
+
+# ==================== 数据库配置 ====================
+database:
+  # SQLite 数据库路径
+  path: "/var/lib/slurm-bill/billing.db"
+  
+  # 保留历史数据天数（0 表示永久保留）
+  retention_days: 0
+  
+  # 自动备份
+  backup:
+    enabled: true
+    path: "/var/backups/slurm-bill"
+    keep_count: 30            # 保留最近 30 个备份
+
+# ==================== 报表配置 ====================
+reporting:
+  # 默认报表周期
+  default_cycle: "monthly"    # monthly, weekly, daily
+  
+  # 自动发送报表
+  email:
+    enabled: false
+    smtp_server: "smtp.example.com"
+    smtp_port: 587
+    username: ""
+    password: ""
+    from_addr: "billing@hpc.example.com"
+    
+    # 接收报表的管理员邮箱
+    admin_emails:
+      - "admin@example.com"
+    
+    # 是否向用户发送个人账单
+    send_to_users: false
+  
+  # 报表导出路径
+  export_path: "/var/lib/slurm-bill/reports"
+
+# ==================== 配额限制配置 ====================
+quotas:
+  # 是否启用配额检查
+  enabled: false
+  
+  # 默认账户配额（每月）
+  default_account_quota: 10000.00
+  
+  # 特定账户配额
+  account_quotas:
+    research: 50000.00
+    student: 5000.00
+    test: 1000.00
+
+# ==================== 日志配置 ====================
+logging:
+  level: "INFO"               # DEBUG, INFO, WARNING, ERROR
+  path: "/var/log/slurm-bill"
+  max_size_mb: 100
+  backup_count: 10
+
+# ==================== Web 界面配置 ====================
+web:
+  enabled: false
+  host: "0.0.0.0"
+  port: 8080
+  
+  # 认证配置
+  auth:
+    enabled: true
+    admin_password: "changeme"
+    secret_key: "your-secret-key-here"
+  
+  # 与 Slurm-Web 集成
+  slurm_web_integration:
+    enabled: true
+    api_endpoint: "http://localhost:5000/api/billing"

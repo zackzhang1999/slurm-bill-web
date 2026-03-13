@@ -1,0 +1,643 @@
+{% extends "base.html" %}
+
+{% block title %}用户管理 - Slurm计费管理系统{% endblock %}
+{% block page_title %}用户管理{% endblock %}
+{% block page_subtitle %}查看用户余额、充值和管理账户{% endblock %}
+
+{% block content %}
+<!-- 操作栏 -->
+<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+    <div class="flex items-center gap-4">
+        <div class="relative">
+            <input 
+                type="text" 
+                id="search-input"
+                placeholder="搜索用户..."
+                class="pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 w-64"
+            >
+            <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+        </div>
+        <select id="status-filter" class="px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+            <option value="">全部状态</option>
+            <option value="active">正常</option>
+            <option value="suspended">已暂停</option>
+        </select>
+    </div>
+    
+    <div class="flex items-center gap-2">
+        <button onclick="exportUsers()" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">
+            <i class="fas fa-download mr-2"></i>导出
+        </button>
+    </div>
+</div>
+
+<!-- 用户列表 -->
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full table-modern">
+            <thead>
+                <tr>
+                    <th class="px-6 py-4 text-left">用户</th>
+                    <th class="px-6 py-4 text-left">账户</th>
+                    <th class="px-6 py-4 text-right">当前余额</th>
+                    <th class="px-6 py-4 text-right">信用额度</th>
+                    <th class="px-6 py-4 text-center">密码状态</th>
+                    <th class="px-6 py-4 text-center">账户状态</th>
+                    <th class="px-6 py-4 text-center">操作</th>
+                </tr>
+            </thead>
+            <tbody id="users-table">
+                <!-- Dynamic content -->
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Pagination -->
+    <div class="px-6 py-4 border-t border-slate-200 flex items-center justify-between">
+        <span class="text-sm text-slate-500">
+            共 <span id="total-count">0</span> 个用户
+        </span>
+        <div class="flex items-center gap-2">
+            <button onclick="changePage(-1)" class="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50" id="prev-btn">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <span class="text-sm text-slate-600">
+                第 <span id="current-page">1</span> 页
+            </span>
+            <button onclick="changePage(1)" class="px-3 py-1 border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50" id="next-btn">
+                <i class="fas fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- User Detail Modal -->
+<div id="user-detail-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center overflow-y-auto">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 my-8">
+        <div class="p-6 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
+                    <span class="text-primary-600 font-bold text-xl" id="detail-avatar"></span>
+                </div>
+                <div>
+                    <h3 class="text-xl font-semibold text-slate-800" id="detail-username"></h3>
+                    <p class="text-sm text-slate-500" id="detail-account"></p>
+                </div>
+            </div>
+            <button onclick="closeModal('user-detail-modal')" class="text-slate-400 hover:text-slate-600">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+        
+        <div class="p-6 space-y-6">
+            <!-- Balance Info -->
+            <div class="grid grid-cols-4 gap-4">
+                <div class="bg-emerald-50 rounded-lg p-4 text-center">
+                    <p class="text-sm text-emerald-600 mb-1">当前余额</p>
+                    <p class="text-2xl font-bold text-emerald-700" id="detail-balance"></p>
+                </div>
+                <div class="bg-blue-50 rounded-lg p-4 text-center">
+                    <p class="text-sm text-blue-600 mb-1">信用额度</p>
+                    <p class="text-2xl font-bold text-blue-700" id="detail-credit"></p>
+                </div>
+                <div class="bg-violet-50 rounded-lg p-4 text-center">
+                    <p class="text-sm text-violet-600 mb-1">累计充值</p>
+                    <p class="text-2xl font-bold text-violet-700" id="detail-recharged"></p>
+                </div>
+                <div class="bg-rose-50 rounded-lg p-4 text-center">
+                    <p class="text-sm text-rose-600 mb-1">累计消费</p>
+                    <p class="text-2xl font-bold text-rose-700" id="detail-consumed"></p>
+                </div>
+            </div>
+            
+            <!-- Password Status Alert -->
+            <div id="password-alert" class="hidden p-4 bg-amber-50 rounded-lg border border-amber-200">
+                <div class="flex items-start gap-3">
+                    <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                    <div>
+                        <p class="font-medium text-amber-800">该用户正在使用默认密码</p>
+                        <p class="text-sm text-amber-700 mt-1">建议提醒用户登录后修改密码，或在此处重置密码。</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recent Jobs -->
+            <div>
+                <h4 class="text-lg font-semibold text-slate-800 mb-4">近期作业</h4>
+                <div class="overflow-x-auto">
+                    <table class="w-full table-modern">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-3 text-left">作业ID</th>
+                                <th class="px-4 py-3 text-left">名称</th>
+                                <th class="px-4 py-3 text-left">分区</th>
+                                <th class="px-4 py-3 text-center">状态</th>
+                                <th class="px-4 py-3 text-right">费用</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detail-jobs">
+                            <!-- Dynamic content -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Recharge History -->
+            <div>
+                <h4 class="text-lg font-semibold text-slate-800 mb-4">充值记录</h4>
+                <div class="overflow-x-auto">
+                    <table class="w-full table-modern">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-3 text-left">时间</th>
+                                <th class="px-4 py-3 text-right">金额</th>
+                                <th class="px-4 py-3 text-left">类型</th>
+                                <th class="px-4 py-3 text-left">备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detail-recharges">
+                            <!-- Dynamic content -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="p-6 border-t border-slate-200 flex flex-wrap gap-3">
+            <button onclick="openRechargeModal(currentUser)" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">
+                <i class="fas fa-plus-circle mr-2"></i>充值
+            </button>
+            <button onclick="openCreditModal(currentUser)" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                <i class="fas fa-credit-card mr-2"></i>设置信用额度
+            </button>
+            <button onclick="openPasswordModal(currentUser)" class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
+                <i class="fas fa-key mr-2"></i>重置密码
+            </button>
+            <button onclick="toggleUserStatus(currentUser)" class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 ml-auto" id="detail-status-btn">
+                暂停账户
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Recharge Modal -->
+<div id="recharge-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+        <div class="p-6 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-plus-circle text-emerald-500 mr-2"></i>
+                用户充值
+            </h3>
+            <button onclick="closeModal('recharge-modal')" class="text-slate-400 hover:text-slate-600">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="p-6">
+            <div class="mb-4 p-4 bg-slate-50 rounded-lg">
+                <p class="text-sm text-slate-500">用户</p>
+                <p class="text-lg font-semibold text-slate-800" id="recharge-username"></p>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">充值金额</label>
+                    <div class="relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">¥</span>
+                        <input type="number" id="recharge-amount" class="w-full pl-8 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500" placeholder="0.00" step="0.01" min="0.01">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">充值类型</label>
+                    <select id="recharge-type" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500">
+                        <option value="cash">现金充值</option>
+                        <option value="transfer">转账</option>
+                        <option value="grant">赠款</option>
+                        <option value="adjustment">调整</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">备注</label>
+                    <input type="text" id="recharge-remark" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500" placeholder="可选">
+                </div>
+            </div>
+        </div>
+        <div class="p-6 border-t border-slate-200 flex justify-end gap-3">
+            <button onclick="closeModal('recharge-modal')" class="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">取消</button>
+            <button onclick="submitRecharge()" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">确认充值</button>
+        </div>
+    </div>
+</div>
+
+<!-- Credit Modal -->
+<div id="credit-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+        <div class="p-6 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-credit-card text-blue-500 mr-2"></i>
+                设置信用额度
+            </h3>
+            <button onclick="closeModal('credit-modal')" class="text-slate-400 hover:text-slate-600">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="p-6">
+            <div class="mb-4 p-4 bg-slate-50 rounded-lg">
+                <p class="text-sm text-slate-500">用户</p>
+                <p class="text-lg font-semibold text-slate-800" id="credit-username"></p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">信用额度</label>
+                <div class="relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">¥</span>
+                    <input type="number" id="credit-amount" class="w-full pl-8 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500" placeholder="0.00" step="0.01" min="0">
+                </div>
+                <p class="text-xs text-slate-500 mt-2">允许用户在余额不足时透支的金额</p>
+            </div>
+        </div>
+        <div class="p-6 border-t border-slate-200 flex justify-end gap-3">
+            <button onclick="closeModal('credit-modal')" class="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">取消</button>
+            <button onclick="submitCredit()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">确认设置</button>
+        </div>
+    </div>
+</div>
+
+<!-- Password Reset Modal -->
+<div id="password-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4">
+        <div class="p-6 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-key text-amber-500 mr-2"></i>
+                重置用户密码
+            </h3>
+            <button onclick="closeModal('password-modal')" class="text-slate-400 hover:text-slate-600">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="p-6">
+            <div class="mb-4 p-4 bg-slate-50 rounded-lg">
+                <p class="text-sm text-slate-500">用户</p>
+                <p class="text-lg font-semibold text-slate-800" id="password-username"></p>
+            </div>
+            
+            <div class="mb-4 p-4 bg-amber-50 rounded-lg border border-amber-200">
+                <div class="flex items-start gap-3">
+                    <i class="fas fa-info-circle text-amber-500 mt-1"></i>
+                    <div class="text-sm text-amber-800">
+                        <p>重置后密码为: <span class="font-mono font-bold">123456</span></p>
+                        <p class="mt-1">用户下次登录时需要修改密码。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="p-6 border-t border-slate-200 flex justify-end gap-3">
+            <button onclick="closeModal('password-modal')" class="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">取消</button>
+            <button onclick="submitPasswordReset()" class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700">
+                <i class="fas fa-redo mr-2"></i>确认重置
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allUsers = [];
+let filteredUsers = [];
+let currentPage = 1;
+let currentUser = null;
+const pageSize = 20;
+
+async function loadUsers() {
+    try {
+        showLoading();
+        const response = await fetch('/api/users?days=30');
+        const result = await response.json();
+        
+        if (!result.success) throw new Error(result.error);
+        
+        allUsers = result.data;
+        filterUsers();
+    } catch (error) {
+        console.error('加载用户失败:', error);
+        alert('加载用户失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function filterUsers() {
+    const search = document.getElementById('search-input').value.toLowerCase();
+    const status = document.getElementById('status-filter').value;
+    
+    filteredUsers = allUsers.filter(u => {
+        const matchSearch = !search || u.user.toLowerCase().includes(search) || u.account.toLowerCase().includes(search);
+        const matchStatus = !status || u.status === status;
+        return matchSearch && matchStatus;
+    });
+    
+    currentPage = 1;
+    renderUsers();
+}
+
+function renderUsers() {
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    const pageUsers = filteredUsers.slice(start, end);
+    
+    const tbody = document.getElementById('users-table');
+    tbody.innerHTML = '';
+    
+    pageUsers.forEach((user, index) => {
+        const statusBadge = user.status === 'active' 
+            ? '<span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">正常</span>'
+            : '<span class="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">已暂停</span>';
+        
+        const balanceClass = user.balance > 0 ? 'text-emerald-600' : (user.balance < 0 ? 'text-red-600' : 'text-slate-600');
+        
+        // 密码状态标签
+        const pwdBadge = user.is_default_password
+            ? '<span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium" title="正在使用默认密码"><i class="fas fa-exclamation-triangle mr-1"></i>默认</span>'
+            : '<span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium"><i class="fas fa-check mr-1"></i>已修改</span>';
+        
+        tbody.innerHTML += `
+            <tr class="fade-in cursor-pointer" style="animation-delay: ${index * 0.03}s" onclick="viewUserDetail('${user.user}')">
+                <td class="px-6 py-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+                            <span class="text-primary-600 font-medium">${user.user.charAt(0).toUpperCase()}</span>
+                        </div>
+                        <span class="font-medium text-slate-800">${user.user}</span>
+                    </div>
+                </td>
+                <td class="px-6 py-4 text-slate-600">${user.account}</td>
+                <td class="px-6 py-4 text-right font-medium ${balanceClass}">${formatMoney(user.balance)}</td>
+                <td class="px-6 py-4 text-right text-slate-600">${formatMoney(user.credit_limit)}</td>
+                <td class="px-6 py-4 text-center">${pwdBadge}</td>
+                <td class="px-6 py-4 text-center">${statusBadge}</td>
+                <td class="px-6 py-4 text-center">
+                    <button onclick="event.stopPropagation(); openRechargeModal('${user.user}')" class="text-emerald-600 hover:text-emerald-700 mr-2" title="充值">
+                        <i class="fas fa-plus-circle"></i>
+                    </button>
+                    <button onclick="event.stopPropagation(); viewUserDetail('${user.user}')" class="text-primary-600 hover:text-primary-700" title="详情">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    document.getElementById('total-count').textContent = filteredUsers.length;
+    document.getElementById('current-page').textContent = currentPage;
+    document.getElementById('prev-btn').disabled = currentPage === 1;
+    document.getElementById('next-btn').disabled = end >= filteredUsers.length;
+}
+
+function changePage(delta) {
+    const maxPage = Math.ceil(filteredUsers.length / pageSize);
+    currentPage = Math.max(1, Math.min(maxPage, currentPage + delta));
+    renderUsers();
+}
+
+async function viewUserDetail(username) {
+    currentUser = username;
+    try {
+        showLoading();
+        const response = await fetch(`/api/user/${username}?days=30`);
+        const result = await response.json();
+        
+        if (!result.success) throw new Error(result.error);
+        
+        const data = result.data;
+        
+        document.getElementById('detail-username').textContent = username;
+        document.getElementById('detail-avatar').textContent = username.charAt(0).toUpperCase();
+        document.getElementById('detail-account').textContent = data.balance ? data.balance.account : 'default';
+        document.getElementById('detail-balance').textContent = formatMoney(data.balance ? parseFloat(data.balance.balance) : 0);
+        document.getElementById('detail-credit').textContent = formatMoney(data.balance ? parseFloat(data.balance.credit_limit) : 0);
+        document.getElementById('detail-recharged').textContent = formatMoney(data.balance ? parseFloat(data.balance.total_recharged) : 0);
+        document.getElementById('detail-consumed').textContent = formatMoney(data.balance ? parseFloat(data.balance.total_consumed) : 0);
+        
+        // 密码状态提示
+        const userInfo = allUsers.find(u => u.user === username);
+        const pwdAlert = document.getElementById('password-alert');
+        if (userInfo && userInfo.is_default_password) {
+            pwdAlert.classList.remove('hidden');
+        } else {
+            pwdAlert.classList.add('hidden');
+        }
+        
+        // Jobs
+        const jobsTbody = document.getElementById('detail-jobs');
+        jobsTbody.innerHTML = '';
+        data.recent_jobs.slice(0, 10).forEach(job => {
+            const stateClass = job.state === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 
+                              job.state === 'FAILED' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700';
+            jobsTbody.innerHTML += `
+                <tr>
+                    <td class="px-4 py-2 font-mono text-sm">${job.job_id}</td>
+                    <td class="px-4 py-2">${job.job_name || '-'}</td>
+                    <td class="px-4 py-2">${job.partition}</td>
+                    <td class="px-4 py-2 text-center"><span class="px-2 py-1 rounded text-xs ${stateClass}">${job.state}</span></td>
+                    <td class="px-4 py-2 text-right">${formatMoney(parseFloat(job.cost))}</td>
+                </tr>
+            `;
+        });
+        
+        // Recharges
+        const rechargesTbody = document.getElementById('detail-recharges');
+        rechargesTbody.innerHTML = '';
+        if (data.recharge_history.length === 0) {
+            rechargesTbody.innerHTML = '<tr><td colspan="4" class="px-4 py-2 text-center text-slate-400">暂无充值记录</td></tr>';
+        } else {
+            data.recharge_history.forEach(r => {
+                rechargesTbody.innerHTML += `
+                    <tr>
+                        <td class="px-4 py-2 text-sm">${r.created_at}</td>
+                        <td class="px-4 py-2 text-right text-emerald-600 font-medium">+${formatMoney(parseFloat(r.amount))}</td>
+                        <td class="px-4 py-2"><span class="px-2 py-1 bg-slate-100 rounded text-xs">${r.recharge_type}</span></td>
+                        <td class="px-4 py-2 text-sm text-slate-500">${r.remark || '-'}</td>
+                    </tr>
+                `;
+            });
+        }
+        
+        // Status button
+        const statusBtn = document.getElementById('detail-status-btn');
+        if (data.balance && data.balance.status === 'active') {
+            statusBtn.textContent = '暂停账户';
+            statusBtn.className = 'px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 ml-auto';
+        } else {
+            statusBtn.textContent = '激活账户';
+            statusBtn.className = 'px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 ml-auto';
+        }
+        
+        document.getElementById('user-detail-modal').classList.remove('hidden');
+    } catch (error) {
+        alert('加载用户详情失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function openRechargeModal(username) {
+    currentUser = username;
+    document.getElementById('recharge-username').textContent = username;
+    document.getElementById('recharge-amount').value = '';
+    document.getElementById('recharge-remark').value = '';
+    document.getElementById('recharge-modal').classList.remove('hidden');
+}
+
+function openCreditModal(username) {
+    currentUser = username;
+    document.getElementById('credit-username').textContent = username;
+    document.getElementById('credit-amount').value = '';
+    document.getElementById('credit-modal').classList.remove('hidden');
+}
+
+function openPasswordModal(username) {
+    currentUser = username;
+    document.getElementById('password-username').textContent = username;
+    document.getElementById('password-modal').classList.remove('hidden');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.add('hidden');
+}
+
+async function submitRecharge() {
+    const amount = parseFloat(document.getElementById('recharge-amount').value);
+    if (!amount || amount <= 0) {
+        alert('请输入有效的充值金额');
+        return;
+    }
+    
+    try {
+        showLoading();
+        const response = await fetch(`/api/user/${currentUser}/recharge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                amount: amount,
+                type: document.getElementById('recharge-type').value,
+                remark: document.getElementById('recharge-remark').value
+            })
+        });
+        
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || result.message);
+        
+        alert('充值成功！');
+        closeModal('recharge-modal');
+        closeModal('user-detail-modal');
+        loadUsers();
+    } catch (error) {
+        alert('充值失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function submitCredit() {
+    const amount = parseFloat(document.getElementById('credit-amount').value);
+    if (isNaN(amount) || amount < 0) {
+        alert('请输入有效的信用额度');
+        return;
+    }
+    
+    try {
+        showLoading();
+        const response = await fetch(`/api/user/${currentUser}/set-credit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: amount })
+        });
+        
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || result.message);
+        
+        alert('信用额度设置成功！');
+        closeModal('credit-modal');
+        closeModal('user-detail-modal');
+        loadUsers();
+    } catch (error) {
+        alert('设置失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function submitPasswordReset() {
+    try {
+        showLoading();
+        const response = await fetch(`/api/user/${currentUser}/password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: '123456' })
+        });
+        
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || result.message);
+        
+        alert('密码重置成功！新密码为: 123456，用户下次登录需要修改密码。');
+        closeModal('password-modal');
+        closeModal('user-detail-modal');
+        loadUsers();
+    } catch (error) {
+        alert('密码重置失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function toggleUserStatus(username) {
+    const user = allUsers.find(u => u.user === username);
+    const newStatus = user && user.status === 'active' ? 'suspended' : 'active';
+    const action = newStatus === 'suspended' ? '暂停' : '激活';
+    
+    if (!confirm(`确定要${action}用户 ${username} 吗？`)) return;
+    
+    try {
+        showLoading();
+        const response = await fetch(`/api/user/${username}/set-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus })
+        });
+        
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || result.message);
+        
+        alert(`${action}成功！`);
+        closeModal('user-detail-modal');
+        loadUsers();
+    } catch (error) {
+        alert('操作失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function exportUsers() {
+    const csv = [
+        ['用户', '账户', '余额', '信用额度', '累计充值', '累计消费', '密码状态', '账户状态'].join(','),
+        ...filteredUsers.map(u => [
+            u.user, u.account, u.balance, u.credit_limit, 
+            u.total_recharged, u.total_consumed, 
+            u.is_default_password ? '默认密码' : '已修改',
+            u.status
+        ].join(','))
+    ].join('\n');
+    
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `users_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+}
+
+document.getElementById('search-input').addEventListener('input', filterUsers);
+document.getElementById('status-filter').addEventListener('change', filterUsers);
+
+document.addEventListener('DOMContentLoaded', loadUsers);
+</script>
+{% endblock %}

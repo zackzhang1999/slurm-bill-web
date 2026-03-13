@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+
+{% block title %}统计报表 - Slurm计费管理系统{% endblock %}
+{% block page_title %}统计报表{% endblock %}
+{% block page_subtitle %}多维度数据分析和报表{% endblock %}
+
+{% block content %}
+<!-- 报表类型选择 -->
+<div class="flex flex-wrap gap-2 mb-6">
+    <button onclick="switchTab('daily')" id="tab-daily" class="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium">
+        <i class="fas fa-calendar-day mr-1"></i>每日统计
+    </button>
+    {% if is_admin %}
+    <button onclick="switchTab('accounts')" id="tab-accounts" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">
+        <i class="fas fa-building mr-1"></i>账户统计
+    </button>
+    {% endif %}
+    <button onclick="switchTab('partitions')" id="tab-partitions" class="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50">
+        <i class="fas fa-server mr-1"></i>分区统计
+    </button>
+</div>
+
+<!-- 时间范围选择 -->
+<div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200 mb-6">
+    <div class="flex items-center gap-4">
+        <label class="text-sm text-slate-600">时间范围:</label>
+        <select id="days-select" onchange="loadCurrentTab()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+            <option value="7">最近7天</option>
+            <option value="30" selected>最近30天</option>
+            <option value="90">最近90天</option>
+        </select>
+        <button onclick="exportCurrentReport()" class="ml-auto px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 text-sm">
+            <i class="fas fa-download mr-1"></i>导出报表
+        </button>
+    </div>
+</div>
+
+<!-- 每日统计内容 -->
+<div id="content-daily" class="tab-content">
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 mb-6">
+        <h3 class="text-lg font-semibold text-slate-800 mb-4">每日费用趋势</h3>
+        <div class="h-80">
+            <canvas id="daily-chart"></canvas>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="p-4 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">每日明细</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full table-modern">
+                <thead>
+                    <tr>
+                        <th class="px-6 py-3 text-left">日期</th>
+                        <th class="px-6 py-3 text-right">作业数</th>
+                        <th class="px-6 py-3 text-right">CPU核时</th>
+                        <th class="px-6 py-3 text-right">GPU卡时</th>
+                        <th class="px-6 py-3 text-right">费用</th>
+                    </tr>
+                </thead>
+                <tbody id="daily-table">
+                    <!-- Dynamic content -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if is_admin %}
+<!-- 账户统计内容 - 仅管理员 -->
+<div id="content-accounts" class="tab-content hidden">
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 mb-6">
+        <h3 class="text-lg font-semibold text-slate-800 mb-4">账户费用分布</h3>
+        <div class="h-80">
+            <canvas id="accounts-chart"></canvas>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="p-4 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">账户明细</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full table-modern">
+                <thead>
+                    <tr>
+                        <th class="px-6 py-3 text-left">账户</th>
+                        <th class="px-6 py-3 text-right">作业数</th>
+                        <th class="px-6 py-3 text-right">用户数</th>
+                        <th class="px-6 py-3 text-right">CPU核时</th>
+                        <th class="px-6 py-3 text-right">GPU卡时</th>
+                        <th class="px-6 py-3 text-right">费用</th>
+                    </tr>
+                </thead>
+                <tbody id="accounts-table">
+                    <!-- Dynamic content -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 分区统计内容 -->
+<div id="content-partitions" class="tab-content hidden">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800 mb-4">分区费用占比</h3>
+            <div class="h-64">
+                <canvas id="partitions-pie-chart"></canvas>
+            </div>
+        </div>
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800 mb-4">分区作业数</h3>
+            <div class="h-64">
+                <canvas id="partitions-bar-chart"></canvas>
+            </div>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="p-4 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">分区明细</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full table-modern">
+                <thead>
+                    <tr>
+                        <th class="px-6 py-3 text-left">分区</th>
+                        <th class="px-6 py-3 text-right">作业数</th>
+                        <th class="px-6 py-3 text-right">CPU核时</th>
+                        <th class="px-6 py-3 text-right">GPU卡时</th>
+                        <th class="px-6 py-3 text-right">费用</th>
+                    </tr>
+                </thead>
+                <tbody id="partitions-table">
+                    <!-- Dynamic content -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentTab = 'daily';
+let dailyChart = null;
+let accountsChart = null;
+let partitionsPieChart = null;
+let partitionsBarChart = null;
+const isAdmin = {{ 'true' if is_admin else 'false' }};
+
+function switchTab(tab) {
+    currentTab = tab;
+    
+    // Update buttons
+    document.getElementById('tab-daily').className = tab === 'daily' 
+        ? 'px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium'
+        : 'px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50';
+    
+    {% if is_admin %}
+    document.getElementById('tab-accounts').className = tab === 'accounts'
+        ? 'px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium'
+        : 'px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50';
+    {% endif %}
+    
+    document.getElementById('tab-partitions').className = tab === 'partitions'
+        ? 'px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium'
+        : 'px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50';
+    
+    // Show/hide content
+    document.getElementById('content-daily').classList.toggle('hidden', tab !== 'daily');
+    {% if is_admin %}
+    document.getElementById('content-accounts').classList.toggle('hidden', tab !== 'accounts');
+    {% endif %}
+    document.getElementById('content-partitions').classList.toggle('hidden', tab !== 'partitions');
+    
+    loadCurrentTab();
+}
+
+function loadCurrentTab() {
+    if (currentTab === 'daily') {
+        loadDailyStats();
+    } else if (currentTab === 'accounts' && isAdmin) {
+        loadAccountsStats();
+    } else if (currentTab === 'partitions') {
+        loadPartitionsStats();
+    }
+}
+
+async function loadDailyStats() {
+    try {
+        showLoading();
+        const days = document.getElementById('days-select').value;
+        const response = await fetch(`/api/daily-stats?days=${days}`);
+        const result = await response.json();
+        
+        if (!result.success) throw new Error(result.error);
+        
+        const data = result.data;
+        
+        // Update chart
+        const ctx = document.getElementById('daily-chart').getContext('2d');
+        if (dailyChart) dailyChart.destroy();
+        
+        dailyChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.date),
+                datasets: [{
+                    label: '日费用',
+                    data: data.map(d => d.daily_cost),
+                    backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, ticks: { callback: v => '¥' + v } }
+                }
+            }
+        });
+        
+        // Update table
+        const tbody = document.getElementById('daily-table');
+        tbody.innerHTML = '';
+        data.forEach(d => {
+            tbody.innerHTML += `
+                <tr>
+                    <td class="px-6 py-3">${d.date}</td>
+                    <td class="px-6 py-3 text-right">${d.job_count}</td>
+                    <td class="px-6 py-3 text-right">${formatNumber(d.cpu_hours || 0, 1)}</td>
+                    <td class="px-6 py-3 text-right">${formatNumber(d.gpu_hours || 0, 1)}</td>
+                    <td class="px-6 py-3 text-right font-medium">${formatMoney(d.daily_cost)}</td>
+                </tr>
+            `;
+        });
+    } catch (error) {
+        console.error('加载每日统计失败:', error);
+    } finally {
+        hideLoading();
+    }
+}
+
+{% if is_admin %}
+async function loadAccountsStats() {
+    try {
+        showLoading();
+        const days = document.getElementById('days-select').value;
+        const response = await fetch(`/api/accounts?days=${days}`);
+        const result = await response.json();
+        
+        if (!result.success) throw new Error(result.error);
+        
+        const data = result.data;
+        
+        // Update chart
+        const ctx = document.getElementById('accounts-chart').getContext('2d');
+        if (accountsChart) accountsChart.destroy();
+        
+        const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+        
+        accountsChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d.account),
+                datasets: [{
+                    data: data.map(d => d.total_cost),
+                    backgroundColor: colors
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'right' } }
+            }
+        });
+        
+        // Update table
+        const tbody = document.getElementById('accounts-table');
+        tbody.innerHTML = '';
+        data.forEach(d => {
+            tbody.innerHTML += `
+                <tr>
+                    <td class="px-6 py-3 font-medium">${d.account}</td>
+                    <td class="px-6 py-3 text-right">${d.job_count}</td>
+                    <td class="px-6 py-3 text-right">${d.user_count}</td>
+                    <td class="px-6 py-3 text-right">${formatNumber(d.cpu_hours || 0, 1)}</td>
+                    <td class="px-6 py-3 text-right">${formatNumber(d.gpu_hours || 0, 1)}</td>
+                    <td class="px-6 py-3 text-right font-medium">${formatMoney(d.total_cost)}</td>
+                </tr>
+            `;
+        });
+    } catch (error) {
+        console.error('加载账户统计失败:', error);
+    } finally {
+        hideLoading();
+    }
+}
+{% endif %}
+
+async function loadPartitionsStats() {
+    try {
+        showLoading();
+        const days = document.getElementById('days-select').value;
+        const response = await fetch(`/api/partitions?days=${days}`);
+        const result = await response.json();
+        
+        if (!result.success) throw new Error(result.error);
+        
+        const data = result.data;
+        const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+        
+        // Pie chart for cost
+        const pieCtx = document.getElementById('partitions-pie-chart').getContext('2d');
+        if (partitionsPieChart) partitionsPieChart.destroy();
+        
+        partitionsPieChart = new Chart(pieCtx, {
+            type: 'pie',
+            data: {
+                labels: data.map(d => d.partition),
+                datasets: [{
+                    data: data.map(d => d.total_cost),
+                    backgroundColor: colors
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+        
+        // Bar chart for jobs
+        const barCtx = document.getElementById('partitions-bar-chart').getContext('2d');
+        if (partitionsBarChart) partitionsBarChart.destroy();
+        
+        partitionsBarChart = new Chart(barCtx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.partition),
+                datasets: [{
+                    label: '作业数',
+                    data: data.map(d => d.job_count),
+                    backgroundColor: colors
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } }
+            }
+        });
+        
+        // Update table
+        const tbody = document.getElementById('partitions-table');
+        tbody.innerHTML = '';
+        data.forEach(d => {
+            tbody.innerHTML += `
+                <tr>
+                    <td class="px-6 py-3 font-medium">${d.partition}</td>
+                    <td class="px-6 py-3 text-right">${d.job_count}</td>
+                    <td class="px-6 py-3 text-right">${formatNumber(d.cpu_hours || 0, 1)}</td>
+                    <td class="px-6 py-3 text-right">${formatNumber(d.gpu_hours || 0, 1)}</td>
+                    <td class="px-6 py-3 text-right font-medium">${formatMoney(d.total_cost)}</td>
+                </tr>
+            `;
+        });
+    } catch (error) {
+        console.error('加载分区统计失败:', error);
+    } finally {
+        hideLoading();
+    }
+}
+
+function exportCurrentReport() {
+    let tableId, filename;
+    if (currentTab === 'daily') {
+        tableId = 'daily-table';
+        filename = 'daily_report';
+    } else if (currentTab === 'accounts') {
+        tableId = 'accounts-table';
+        filename = 'accounts_report';
+    } else {
+        tableId = 'partitions-table';
+        filename = 'partitions_report';
+    }
+    
+    const table = document.getElementById(tableId);
+    const rows = table.querySelectorAll('tr');
+    
+    let csv = [];
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        const rowData = Array.from(cells).map(c => c.textContent.trim()).join(',');
+        csv.push(rowData);
+    });
+    
+    const blob = new Blob(['\ufeff' + csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${filename}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+}
+
+document.addEventListener('DOMContentLoaded', loadCurrentTab);
+</script>
+{% endblock %}

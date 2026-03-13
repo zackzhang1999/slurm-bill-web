@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Slurm计费管理系统{% endblock %}</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            200: '#bfdbfe',
+                            300: '#93c5fd',
+                            400: '#60a5fa',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            800: '#1e40af',
+                            900: '#1e3a8a',
+                        },
+                        dark: {
+                            800: '#1e293b',
+                            900: '#0f172a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        /* 动画 */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        
+        /* 玻璃态效果 */
+        .glass {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        
+        /* 表格样式 */
+        .table-modern {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        .table-modern th {
+            background: #f8fafc;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+        .table-modern td, .table-modern th {
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .table-modern tr:last-child td {
+            border-bottom: none;
+        }
+        .table-modern tbody tr:hover {
+            background: #f8fafc;
+        }
+        
+        /* 侧边栏 */
+        .sidebar-link {
+            position: relative;
+            transition: all 0.2s;
+        }
+        .sidebar-link::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 0;
+            background: #3b82f6;
+            transition: height 0.2s;
+        }
+        .sidebar-link:hover::before,
+        .sidebar-link.active::before {
+            height: 100%;
+        }
+        .sidebar-link.active {
+            background: rgba(59, 130, 246, 0.1);
+            color: #2563eb;
+        }
+    </style>
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased">
+    
+    <div class="flex h-screen overflow-hidden">
+        <!-- 侧边栏 -->
+        <aside class="w-64 bg-white border-r border-slate-200 flex flex-col">
+            <!-- Logo -->
+            <div class="h-16 flex items-center px-6 border-b border-slate-200">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-server text-white text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg text-slate-800">Slurm计费</h1>
+                        <p class="text-xs text-slate-500" id="user-role-text">加载中...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 导航 -->
+            <nav class="flex-1 overflow-y-auto py-4">
+                <ul class="space-y-1 px-3" id="sidebar-menu">
+                    <!-- 仪表盘 - 所有用户 -->
+                    <li>
+                        <a href="{{ url_for('index') }}" 
+                           class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 {% if request.endpoint == 'index' %}active{% endif %}">
+                            <i class="fas fa-chart-line w-5"></i>
+                            仪表盘
+                        </a>
+                    </li>
+                    
+                    <!-- 我的账户 - 普通用户 -->
+                    <li id="menu-user-self" class="hidden">
+                        <a href="{{ url_for('user_self') }}" 
+                           class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 {% if request.endpoint == 'user_self' %}active{% endif %}">
+                            <i class="fas fa-user w-5"></i>
+                            我的账户
+                        </a>
+                    </li>
+                    
+                    <!-- 用户管理 - 仅管理员 -->
+                    <li id="menu-users" class="hidden">
+                        <a href="{{ url_for('users') }}" 
+                           class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 {% if request.endpoint == 'users' %}active{% endif %}">
+                            <i class="fas fa-users w-5"></i>
+                            用户管理
+                        </a>
+                    </li>
+                    
+                    <!-- 作业查询 - 所有用户 -->
+                    <li>
+                        <a href="{{ url_for('jobs') }}" 
+                           class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 {% if request.endpoint == 'jobs' %}active{% endif %}">
+                            <i class="fas fa-tasks w-5"></i>
+                            作业查询
+                        </a>
+                    </li>
+                    
+                    <!-- 统计报表 - 所有用户 -->
+                    <li>
+                        <a href="{{ url_for('reports') }}" 
+                           class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 {% if request.endpoint == 'reports' %}active{% endif %}">
+                            <i class="fas fa-chart-bar w-5"></i>
+                            统计报表
+                        </a>
+                    </li>
+                    
+                    <!-- 系统设置 - 仅管理员 -->
+                    <li id="menu-settings" class="hidden">
+                        <a href="{{ url_for('settings') }}" 
+                           class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 {% if request.endpoint == 'settings' %}active{% endif %}">
+                            <i class="fas fa-cog w-5"></i>
+                            系统设置
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            
+            <!-- 底部 -->
+            <div class="p-4 border-t border-slate-200">
+                <div class="flex items-center gap-3 px-4 py-3 bg-slate-50 rounded-lg">
+                    <div class="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
+                        <i class="fas fa-user text-primary-600 text-sm"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-slate-900" id="sidebar-username">加载中...</p>
+                        <p class="text-xs text-slate-500 truncate" id="sidebar-role">加载中...</p>
+                    </div>
+                    <a href="{{ url_for('logout') }}" class="text-slate-400 hover:text-red-500 transition-colors" title="退出登录">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </a>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- 主内容区 -->
+        <main class="flex-1 overflow-y-auto">
+            <!-- 顶部栏 -->
+            <header class="glass sticky top-0 z-30 border-b border-slate-200">
+                <div class="flex items-center justify-between px-8 h-16">
+                    <div>
+                        <h2 class="text-xl font-semibold text-slate-800">{% block page_title %}仪表盘{% endblock %}</h2>
+                        <p class="text-sm text-slate-500">{% block page_subtitle %}概览与统计{% endblock %}</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span class="text-sm text-slate-500" id="current-time"></span>
+                        <button onclick="refreshData()" class="p-2 text-slate-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="刷新数据">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+            </header>
+            
+            <!-- 页面内容 -->
+            <div class="p-8">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="mb-4 p-4 rounded-lg {% if category == 'error' %}bg-red-50 text-red-700 border border-red-200{% else %}bg-green-50 text-green-700 border border-green-200{% endif %}">
+                                <div class="flex items-center gap-2">
+                                    <i class="fas {% if category == 'error' %}fa-exclamation-circle{% else %}fa-check-circle{% endif %}"></i>
+                                    <span>{{ message }}</span>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+    
+    <!-- 加载遮罩 -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center">
+        <div class="bg-white rounded-xl p-6 flex items-center gap-4">
+            <div class="animate-spin w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full"></div>
+            <span class="text-slate-700">加载中...</span>
+        </div>
+    </div>
+    
+    <script>
+        // 更新时间
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = now.toLocaleString('zh-CN');
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+        
+        // 显示/隐藏加载
+        function showLoading() {
+            document.getElementById('loading-overlay').classList.remove('hidden');
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading-overlay').classList.add('hidden');
+        }
+        
+        // 刷新数据
+        function refreshData() {
+            location.reload();
+        }
+        
+        // 格式化金额
+        function formatMoney(amount) {
+            return new Intl.NumberFormat('zh-CN', {
+                style: 'currency',
+                currency: 'CNY'
+            }).format(amount);
+        }
+        
+        // 格式化数字
+        function formatNumber(num, decimals = 2) {
+            return new Intl.NumberFormat('zh-CN', {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            }).format(num || 0);
+        }
+        
+        // 加载用户信息并更新侧边栏
+        async function loadUserInfo() {
+            try {
+                const response = await fetch('/api/user/info');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const user = result.data;
+                    document.getElementById('sidebar-username').textContent = user.username;
+                    document.getElementById('sidebar-role').textContent = user.is_admin ? '管理员' : '普通用户';
+                    document.getElementById('user-role-text').textContent = user.is_admin ? '管理系统' : '个人中心';
+                    
+                    // 根据角色显示/隐藏菜单
+                    if (user.is_admin) {
+                        document.getElementById('menu-users').classList.remove('hidden');
+                        document.getElementById('menu-settings').classList.remove('hidden');
+                        document.getElementById('menu-user-self').classList.add('hidden');
+                    } else {
+                        document.getElementById('menu-users').classList.add('hidden');
+                        document.getElementById('menu-settings').classList.add('hidden');
+                        document.getElementById('menu-user-self').classList.remove('hidden');
+                    }
+                }
+            } catch (error) {
+                console.error('加载用户信息失败:', error);
+            }
+        }
+        
+        // 页面加载完成后获取用户信息
+        document.addEventListener('DOMContentLoaded', loadUserInfo);
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

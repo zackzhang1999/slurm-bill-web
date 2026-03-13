@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}我的账户 - Slurm计费管理系统{% endblock %}
+{% block page_title %}我的账户{% endblock %}
+{% block page_subtitle %}查看您的作业记录和账户信息{% endblock %}
+
+{% block content %}
+<!-- 欢迎信息 -->
+<div class="bg-gradient-to-r from-primary-500 to-primary-700 rounded-xl p-6 text-white mb-6">
+    <div class="flex items-center gap-4">
+        <div class="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+            <i class="fas fa-user text-3xl"></i>
+        </div>
+        <div>
+            <h3 class="text-xl font-semibold">欢迎回来，{{ username }}</h3>
+            <p class="text-primary-100">这是您的个人计费中心，可以查看作业记录和账户余额</p>
+        </div>
+    </div>
+</div>
+
+<!-- 账户概览 -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8" id="balance-cards">
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-slate-500">当前余额</p>
+                <p class="text-2xl font-bold text-emerald-600 mt-1" id="user-balance">¥0.00</p>
+            </div>
+            <div class="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center">
+                <i class="fas fa-wallet text-emerald-600 text-xl"></i>
+            </div>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-slate-500">信用额度</p>
+                <p class="text-2xl font-bold text-blue-600 mt-1" id="user-credit">¥0.00</p>
+            </div>
+            <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                <i class="fas fa-credit-card text-blue-600 text-xl"></i>
+            </div>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-slate-500">累计充值</p>
+                <p class="text-2xl font-bold text-violet-600 mt-1" id="user-recharged">¥0.00</p>
+            </div>
+            <div class="w-12 h-12 bg-violet-100 rounded-xl flex items-center justify-center">
+                <i class="fas fa-plus-circle text-violet-600 text-xl"></i>
+            </div>
+        </div>
+    </div>
+    
+    <div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-slate-500">累计消费</p>
+                <p class="text-2xl font-bold text-rose-600 mt-1" id="user-consumed">¥0.00</p>
+            </div>
+            <div class="w-12 h-12 bg-rose-100 rounded-xl flex items-center justify-center">
+                <i class="fas fa-minus-circle text-rose-600 text-xl"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 费用趋势 -->
+<div class="bg-white rounded-xl p-6 shadow-sm border border-slate-200 mb-6">
+    <h3 class="text-lg font-semibold text-slate-800 mb-4">
+        <i class="fas fa-chart-line text-primary-500 mr-2"></i>
+        30日费用趋势
+    </h3>
+    <div class="h-72">
+        <canvas id="trend-chart"></canvas>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- 近期作业 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-tasks text-primary-500 mr-2"></i>
+                近期作业
+            </h3>
+            <a href="/jobs" class="text-sm text-primary-600 hover:text-primary-700">
+                查看全部 <i class="fas fa-arrow-right ml-1"></i>
+            </a>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full table-modern">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-3 text-left">作业ID</th>
+                        <th class="px-4 py-3 text-left">分区</th>
+                        <th class="px-4 py-3 text-center">状态</th>
+                        <th class="px-4 py-3 text-right">费用</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-jobs">
+                    <!-- Dynamic content -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- 充值记录 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+        <div class="p-4 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-history text-primary-500 mr-2"></i>
+                充值记录
+            </h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full table-modern">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-3 text-left">时间</th>
+                        <th class="px-4 py-3 text-right">金额</th>
+                        <th class="px-4 py-3 text-left">类型</th>
+                    </tr>
+                </thead>
+                <tbody id="recharge-history">
+                    <!-- Dynamic content -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 使用提示 -->
+<div class="mt-6 bg-amber-50 rounded-xl p-4 border border-amber-200">
+    <div class="flex items-start gap-3">
+        <i class="fas fa-lightbulb text-amber-500 mt-1"></i>
+        <div>
+            <h4 class="font-medium text-amber-800">使用提示</h4>
+            <p class="text-sm text-amber-700 mt-1">
+                费用根据CPU核心数、GPU卡数和使用时长计算。如有疑问，请联系管理员。
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const username = '{{ username }}';
+let trendChart = null;
+
+async function loadUserData() {
+    try {
+        showLoading();
+        const response = await fetch(`/api/user/${username}?days=30`);
+        const result = await response.json();
+        
+        if (!result.success) {
+            throw new Error(result.error);
+        }
+        
+        const data = result.data;
+        
+        // 更新余额信息
+        if (data.balance) {
+            document.getElementById('user-balance').textContent = formatMoney(parseFloat(data.balance.balance));
+            document.getElementById('user-credit').textContent = formatMoney(parseFloat(data.balance.credit_limit));
+            document.getElementById('user-recharged').textContent = formatMoney(parseFloat(data.balance.total_recharged));
+            document.getElementById('user-consumed').textContent = formatMoney(parseFloat(data.balance.total_consumed));
+        }
+        
+        // 更新趋势图
+        updateTrendChart(data.daily_trend);
+        
+        // 更新近期作业
+        const jobsTbody = document.getElementById('recent-jobs');
+        jobsTbody.innerHTML = '';
+        data.recent_jobs.slice(0, 10).forEach(job => {
+            const stateClass = job.state === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 
+                              job.state === 'FAILED' ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700';
+            jobsTbody.innerHTML += `
+                <tr>
+                    <td class="px-4 py-3 font-mono text-sm">${job.job_id}</td>
+                    <td class="px-4 py-3">${job.partition}</td>
+                    <td class="px-4 py-3 text-center"><span class="px-2 py-1 rounded text-xs ${stateClass}">${job.state}</span></td>
+                    <td class="px-4 py-3 text-right font-medium">${formatMoney(parseFloat(job.cost))}</td>
+                </tr>
+            `;
+        });
+        
+        // 更新充值记录
+        const rechargesTbody = document.getElementById('recharge-history');
+        rechargesTbody.innerHTML = '';
+        if (data.recharge_history.length === 0) {
+            rechargesTbody.innerHTML = '<tr><td colspan="3" class="px-4 py-3 text-center text-slate-400">暂无充值记录</td></tr>';
+        } else {
+            data.recharge_history.forEach(r => {
+                rechargesTbody.innerHTML += `
+                    <tr>
+                        <td class="px-4 py-3 text-sm">${r.created_at}</td>
+                        <td class="px-4 py-3 text-right text-emerald-600 font-medium">+${formatMoney(parseFloat(r.amount))}</td>
+                        <td class="px-4 py-3"><span class="px-2 py-1 bg-slate-100 rounded text-xs">${r.recharge_type}</span></td>
+                    </tr>
+                `;
+            });
+        }
+    } catch (error) {
+        console.error('加载用户数据失败:', error);
+        alert('加载数据失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function updateTrendChart(dailyTrend) {
+    const ctx = document.getElementById('trend-chart').getContext('2d');
+    
+    const labels = dailyTrend.map(d => d.date);
+    const costs = dailyTrend.map(d => d.daily_cost);
+    
+    if (trendChart) {
+        trendChart.destroy();
+    }
+    
+    trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '日费用',
+                data: costs,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 3,
+                pointBackgroundColor: '#3b82f6',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: { maxTicksLimit: 10 }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#f1f5f9' },
+                    ticks: { callback: v => '¥' + v }
+                }
+            }
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', loadUserData);
+</script>
+{% endblock %}
