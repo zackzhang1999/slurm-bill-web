@@ -13,6 +13,8 @@ import sys
 import sqlite3
 import json
 import yaml
+import subprocess
+import re
 from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import wraps
@@ -56,6 +58,103 @@ def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def get_job_status_from_jobinfo(job_id):
+    """
+    使用 jobinfo 命令获取作业状态
+    
+    Args:
+        job_id: 作业ID
+    
+    Returns:
+        dict: 包含作业状态信息的字典，如果获取失败返回 None
+    """
+    try:
+        result = subprocess.run(
+            ['jobinfo', str(job_id)],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            # jobinfo 返回错误，可能是作业不存在
+            return None
+        
+        output = result.stdout
+        job_info = {}
+        
+        # 解析 jobinfo 输出
+        for line in output.split('\n'):
+            line = line.strip()
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                job_info[key] = value
+        
+        # 提取状态信息
+        state = job_info.get('State', '')
+        # 状态可能包含更多信息，如 "COMPLETED" 或 "CANCELLED by 0"
+        # 只取第一个单词作为主要状态
+        if state:
+            state = state.split()[0]
+        
+        # 解析 CPU 数量 (Cores 字段)
+        ncpus = job_info.get('Cores')
+        if ncpus:
+            try:
+                ncpus = int(ncpus)
+            except (ValueError, TypeError):
+                ncpus = None
+        
+        # 解析 GPU 数量
+        alloc_gpus = job_info.get('GPUs')
+        if alloc_gpus:
+            try:
+                alloc_gpus = int(alloc_gpus)
+            except (ValueError, TypeError):
+                alloc_gpus = 0
+        else:
+            alloc_gpus = 0
+        
+        # 解析节点数
+        nnodes = job_info.get('Nodes')
+        if nnodes and nnodes != 'None assigned':
+            try:
+                nnodes = int(nnodes)
+            except (ValueError, TypeError):
+                nnodes = 1
+        else:
+            nnodes = 1
+        
+        return {
+            'job_id': job_id,
+            'state': state,
+            'user': job_info.get('User'),
+            'partition': job_info.get('Partition'),
+            'account': job_info.get('Account'),
+            'ncpus': ncpus,
+            'nnodes': nnodes,
+            'alloc_gpus': alloc_gpus,
+            'start_time': job_info.get('Start') if job_info.get('Start') != 'None' else None,
+            'end_time': job_info.get('End') if job_info.get('End') != 'None' else None,
+            'elapsed': job_info.get('Used walltime'),
+            'job_name': job_info.get('Name'),
+            'exit_code': job_info.get('ExitCode'),
+            'submit_time': job_info.get('Submit'),
+            'waited': job_info.get('Waited'),
+            'reserved_walltime': job_info.get('Reserved walltime'),
+            'used_cpu_time': job_info.get('Used CPU time'),
+            'max_mem_used': job_info.get('Max Mem used'),
+            'raw_info': job_info
+        }
+    except subprocess.TimeoutExpired:
+        print(f"[jobinfo] 超时: job_id={job_id}")
+        return None
+    except Exception as e:
+        print(f"[jobinfo] 错误: job_id={job_id}, error={e}")
+        return None
 
 def init_user_passwords_table():
     """初始化用户密码表"""
@@ -822,6 +921,7 @@ def api_jobs():
         account = request.args.get('account')
         days = request.args.get('days', 30, type=int)
         limit = request.args.get('limit', 100, type=int)
+        use_jobinfo = request.args.get('use_jobinfo', 'false').lower() == 'true'
         
         # 普通用户只能查看自己的作业
         if not current_user.is_admin:
@@ -832,24 +932,31 @@ def api_jobs():
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # 使用子查询去重，只获取每个 job_id 的最新记录
         query = '''
             SELECT 
-                job_id, job_name, user, account, partition, state,
-                submit_time, start_time, end_time, elapsed,
-                ncpus, nnodes, alloc_gpus, cost, billing_units
-            FROM job_records
-            WHERE end_time >= ?
+                j.job_id, j.job_name, j.user, j.account, j.partition, j.state,
+                j.submit_time, j.start_time, j.end_time, j.elapsed,
+                j.ncpus, j.nnodes, j.alloc_gpus, j.cost, j.billing_units
+            FROM job_records j
+            INNER JOIN (
+                SELECT job_id, MAX(created_at) as max_created_at
+                FROM job_records
+                WHERE end_time >= ?
+                GROUP BY job_id
+            ) latest ON j.job_id = latest.job_id AND j.created_at = latest.max_created_at
+            WHERE 1=1
         '''
         params = [start_date]
         
         if user:
-            query += " AND user = ?"
+            query += " AND j.user = ?"
             params.append(user)
         if account:
-            query += " AND account = ?"
+            query += " AND j.account = ?"
             params.append(account)
         
-        query += " ORDER BY end_time DESC LIMIT ?"
+        query += " ORDER BY j.end_time DESC LIMIT ?"
         params.append(limit)
         
         cursor.execute(query, params)
@@ -857,9 +964,225 @@ def api_jobs():
         
         conn.close()
         
+        # 如果使用 jobinfo，则获取实时状态
+        if use_jobinfo:
+            for job in jobs:
+                job_id = job.get('job_id')
+                if job_id:
+                    real_time_info = get_job_status_from_jobinfo(job_id)
+                    if real_time_info and real_time_info.get('state'):
+                        job['state'] = real_time_info['state']
+                        job['state_source'] = 'jobinfo'  # 标记状态来源
+                    else:
+                        job['state_source'] = 'database'  # 使用数据库状态
+        
         return jsonify({'success': True, 'data': jobs})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/job/<job_id>/status')
+@login_required
+def api_job_status(job_id):
+    """
+    获取单个作业的实时状态（使用 jobinfo）
+    
+    Args:
+        job_id: 作业ID
+    
+    Returns:
+        JSON: 包含作业实时状态的信息
+    """
+    try:
+        # 首先检查用户是否有权限查看此作业
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT user FROM job_records WHERE job_id = ?', (job_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            return jsonify({'success': False, 'error': '作业不存在'}), 404
+        
+        # 普通用户只能查看自己的作业
+        if not current_user.is_admin and row['user'] != current_user.username:
+            return jsonify({'success': False, 'error': '无权查看此作业'}), 403
+        
+        # 使用 jobinfo 获取实时状态
+        job_info = get_job_status_from_jobinfo(job_id)
+        
+        if job_info:
+            return jsonify({
+                'success': True,
+                'data': job_info,
+                'source': 'jobinfo'
+            })
+        else:
+            # 如果 jobinfo 失败，返回数据库中的状态
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT job_id, job_name, user, account, partition, state,
+                       submit_time, start_time, end_time, elapsed,
+                       ncpus, nnodes, alloc_gpus, cost
+                FROM job_records WHERE job_id = ?
+            ''', (job_id,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return jsonify({
+                    'success': True,
+                    'data': dict(row),
+                    'source': 'database',
+                    'message': 'jobinfo 查询失败，返回数据库状态'
+                })
+            else:
+                return jsonify({'success': False, 'error': '无法获取作业状态'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/job/<job_id>/cost-detail')
+@login_required
+def api_job_cost_detail(job_id):
+    """
+    获取作业费用的详细计算过程
+    返回与后端计算一致的明细，解决前端展示与实际费用不一致的问题
+    """
+    try:
+        # 获取作业详细信息（包括 elapsed_seconds）
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                j.job_id, j.job_name, j.user, j.account, j.partition, j.state,
+                j.submit_time, j.start_time, j.end_time, j.elapsed, j.elapsed_seconds,
+                j.ncpus, j.nnodes, j.alloc_gpus, j.max_rss_mb,
+                j.cost, j.billing_units
+            FROM job_records j
+            INNER JOIN (
+                SELECT job_id, MAX(created_at) as max_created_at
+                FROM job_records WHERE job_id = ?
+                GROUP BY job_id
+            ) latest ON j.job_id = latest.job_id AND j.created_at = latest.max_created_at
+            WHERE j.job_id = ?
+        ''', (job_id, job_id))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            return jsonify({'success': False, 'error': '作业不存在'}), 404
+        
+        job = dict(row)
+        
+        # 普通用户只能查看自己的作业
+        if not current_user.is_admin and job['user'] != current_user.username:
+            return jsonify({'success': False, 'error': '无权查看此作业'}), 403
+        
+        # 加载配置
+        config = load_config()
+        billing = config.get('billing', {})
+        partitions = config.get('partitions', {})
+        discounts = config.get('discounts', {})
+        
+        # 计算参数
+        elapsed_seconds = Decimal(str(job.get('elapsed_seconds', 0) or 0))
+        hours = elapsed_seconds / Decimal(3600)
+        
+        ncpus = int(job.get('ncpus', 0) or 0)
+        alloc_gpus = int(job.get('alloc_gpus', 0) or 0)
+        nnodes = int(job.get('nnodes', 1) or 1)
+        max_rss_mb = Decimal(str(job.get('max_rss_mb', 0) or 0))
+        mem_gb = max_rss_mb / Decimal(1024)
+        
+        # 费率
+        cpu_rate = Decimal(str(billing.get('cpu_per_hour', 0.1)))
+        gpu_rate = Decimal(str(billing.get('gpu_per_hour', 2.0)))
+        mem_rate = Decimal(str(billing.get('memory_gb_per_hour', 0.02)))
+        node_rate = Decimal(str(billing.get('node_per_hour', 0.0)))
+        
+        # 计算各项费用（与后端一致）
+        cpu_cost = hours * cpu_rate * ncpus
+        gpu_cost = hours * gpu_rate * alloc_gpus
+        mem_cost = hours * mem_rate * mem_gb
+        node_cost = hours * node_rate * nnodes
+        
+        subtotal = cpu_cost + gpu_cost + mem_cost + node_cost
+        
+        # 分区倍率
+        partition = job.get('partition', 'default')
+        partition_multiplier = Decimal(str(partitions.get(partition, 1.0)))
+        after_partition = subtotal * partition_multiplier
+        
+        # 折扣
+        account = job.get('account', '')
+        user = job.get('user', '')
+        account_discount = Decimal(str(discounts.get('accounts', {}).get(account, 0)))
+        user_discount = Decimal(str(discounts.get('users', {}).get(user, 0)))
+        
+        # 优先级：用户折扣 > 账户折扣
+        discount = user_discount if user_discount > 0 else account_discount
+        discount_source = 'user' if user_discount > 0 else ('account' if account_discount > 0 else None)
+        
+        after_discount = after_partition * (Decimal(1) - discount)
+        
+        # 四舍五入
+        rounding = billing.get('rounding', '0.01')
+        final_cost = after_discount.quantize(Decimal(rounding))
+        
+        # 最低消费
+        min_charge = Decimal(str(billing.get('min_charge', 0.01)))
+        if final_cost > 0 and final_cost < min_charge:
+            final_cost = min_charge
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'job_id': job_id,
+                'elapsed': job.get('elapsed'),
+                'elapsed_seconds': float(elapsed_seconds),
+                'hours': float(hours.quantize(Decimal('0.0001'))),
+                'resources': {
+                    'ncpus': ncpus,
+                    'alloc_gpus': alloc_gpus,
+                    'nnodes': nnodes,
+                    'max_rss_mb': float(max_rss_mb),
+                    'mem_gb': float(mem_gb.quantize(Decimal('0.01')))
+                },
+                'rates': {
+                    'cpu_per_hour': float(cpu_rate),
+                    'gpu_per_hour': float(gpu_rate),
+                    'memory_gb_per_hour': float(mem_rate),
+                    'node_per_hour': float(node_rate)
+                },
+                'cost_breakdown': {
+                    'cpu_cost': float(cpu_cost.quantize(Decimal('0.01'))),
+                    'gpu_cost': float(gpu_cost.quantize(Decimal('0.01'))),
+                    'mem_cost': float(mem_cost.quantize(Decimal('0.01'))),
+                    'node_cost': float(node_cost.quantize(Decimal('0.01'))),
+                    'subtotal': float(subtotal.quantize(Decimal('0.01')))
+                },
+                'partition': {
+                    'name': partition,
+                    'multiplier': float(partition_multiplier),
+                    'cost_after': float(after_partition.quantize(Decimal('0.01')))
+                },
+                'discount': {
+                    'rate': float(discount),
+                    'percentage': float(discount * 100),
+                    'source': discount_source,
+                    'account_discount': float(account_discount),
+                    'user_discount': float(user_discount),
+                    'cost_after': float(after_discount.quantize(Decimal('0.01')))
+                },
+                'final_cost': float(final_cost),
+                'stored_cost': float(job.get('cost', 0) or 0),
+                'billing_units': float(job.get('billing_units', 0) or 0),
+                'currency': billing.get('currency', 'CNY')
+            }
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'traceback': traceback.format_exc()}), 500
 
 @app.route('/api/accounts')
 @admin_required
@@ -970,21 +1293,91 @@ def api_daily_stats():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/api/config')
-@admin_required
+@app.route('/api/config', methods=['GET', 'POST'])
 def api_config():
-    """获取配置信息 - 仅管理员"""
-    try:
-        # 返回安全的配置信息（不包含密码）
-        safe_config = {
-            'billing': config.get('billing', {}),
-            'partitions': config.get('partitions', {}),
-            'discounts': config.get('discounts', {}),
-            'currency': config.get('billing', {}).get('currency', 'CNY')
-        }
-        return jsonify({'success': True, 'data': safe_config})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    """获取或保存配置信息 - GET允许所有登录用户，POST仅管理员"""
+    CONFIG_PATH = '/etc/slurm-bill/config.yaml'
+    
+    if request.method == 'POST':
+        # POST 仅允许管理员
+        if not current_user.is_admin:
+            return jsonify({'success': False, 'error': '权限不足'}), 403
+        try:
+            data = request.json
+            
+            # 读取现有配置
+            existing_config = {}
+            if os.path.exists(CONFIG_PATH):
+                with open(CONFIG_PATH, 'r') as f:
+                    existing_config = yaml.safe_load(f) or {}
+            
+            # 更新配置（递归合并，但字典值完全替换）
+            def deep_merge(source, destination):
+                for key, value in source.items():
+                    if isinstance(value, dict):
+                        # 如果 destination[key] 不存在或为 None，创建空字典
+                        if key not in destination or destination.get(key) is None:
+                            destination[key] = {}
+                        # 对于特定的配置项（partitions, discounts等），完全替换子字典
+                        # 而不是递归合并，这样可以支持删除操作
+                        if key in ['partitions', 'account_quotas']:
+                            destination[key] = value.copy()
+                        elif key == 'discounts' and isinstance(value, dict):
+                            # discounts 下的 accounts 和 users 也需要完全替换
+                            destination[key] = destination.get(key, {})
+                            for sub_key, sub_value in value.items():
+                                if isinstance(sub_value, dict):
+                                    destination[key][sub_key] = sub_value.copy()
+                                else:
+                                    destination[key][sub_key] = sub_value
+                        else:
+                            deep_merge(value, destination[key])
+                    else:
+                        destination[key] = value
+                return destination
+            
+            # 合并新配置到现有配置
+            updated_config = deep_merge(data, existing_config.copy())
+            
+            # 确保目录存在
+            os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+            
+            # 写入配置文件
+            with open(CONFIG_PATH, 'w') as f:
+                yaml.dump(updated_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            
+            # 重新加载全局配置
+            global config
+            config = load_config()
+            
+            return jsonify({'success': True, 'message': '配置已保存'})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    else:
+        # GET 请求 - 允许所有登录用户访问
+        if not current_user.is_authenticated:
+            return jsonify({'success': False, 'error': '请先登录'}), 401
+        
+        # 返回完整配置（不包含敏感信息如密码）
+        try:
+            # 读取完整配置
+            full_config = {}
+            if os.path.exists(CONFIG_PATH):
+                with open(CONFIG_PATH, 'r') as f:
+                    full_config = yaml.safe_load(f) or {}
+            
+            # 隐藏敏感字段
+            safe_config = full_config.copy()
+            if 'web' in safe_config and 'auth' in safe_config['web']:
+                if 'password' in safe_config['web']['auth']:
+                    safe_config['web']['auth']['password'] = '********'
+            if 'reporting' in safe_config and 'email' in safe_config['reporting']:
+                if 'password' in safe_config['reporting']['email']:
+                    safe_config['reporting']['email']['password'] = '********'
+            
+            return jsonify({'success': True, 'data': safe_config})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
 
 # ==================== 主程序 ====================
 
@@ -1010,4 +1403,4 @@ if __name__ == '__main__':
     print(f"管理员密码: {config.get('web', {}).get('auth', {}).get('admin_password', 'changeme')}")
     print("="*60 + "\n")
     
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)

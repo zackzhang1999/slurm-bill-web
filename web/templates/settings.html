@@ -2,143 +2,348 @@
 
 {% block title %}系统设置 - Slurm计费管理系统{% endblock %}
 {% block page_title %}系统设置{% endblock %}
-{% block page_subtitle %}查看系统配置和费率信息{% endblock %}
+{% block page_subtitle %}配置系统参数和计费规则{% endblock %}
 
 {% block content %}
+<!-- 保存按钮悬浮栏 -->
+<div class="fixed bottom-6 right-6 z-50 flex gap-3">
+    <button onclick="resetConfig()" class="px-6 py-3 bg-slate-200 text-slate-700 rounded-lg shadow-lg hover:bg-slate-300 transition-colors">
+        <i class="fas fa-undo mr-2"></i>重置
+    </button>
+    <button onclick="saveConfig()" class="px-6 py-3 bg-primary-600 text-white rounded-lg shadow-lg hover:bg-primary-700 transition-colors">
+        <i class="fas fa-save mr-2"></i>保存配置
+    </button>
+</div>
+
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <!-- 计费费率配置 -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200" id="section-billing">
         <div class="p-6 border-b border-slate-200">
             <h3 class="text-lg font-semibold text-slate-800">
                 <i class="fas fa-coins text-amber-500 mr-2"></i>
                 计费费率
             </h3>
+            <p class="text-sm text-slate-500 mt-1">配置资源计费单价和计费规则</p>
         </div>
-        <div class="p-6">
-            <div class="space-y-4" id="billing-config">
-                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                    <div>
-                        <p class="font-medium text-slate-800">CPU 单价</p>
-                        <p class="text-sm text-slate-500">每核心每小时</p>
-                    </div>
-                    <span class="text-xl font-bold text-slate-800" id="cpu-rate">-</span>
+        <div class="p-6 space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">CPU单价 (元/核/时)</label>
+                    <input type="number" step="0.01" id="billing-cpu_per_hour" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                 </div>
-                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                    <div>
-                        <p class="font-medium text-slate-800">GPU 单价</p>
-                        <p class="text-sm text-slate-500">每卡每小时</p>
-                    </div>
-                    <span class="text-xl font-bold text-slate-800" id="gpu-rate">-</span>
-                </div>
-                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                    <div>
-                        <p class="font-medium text-slate-800">内存单价</p>
-                        <p class="text-sm text-slate-500">每GB每小时</p>
-                    </div>
-                    <span class="text-xl font-bold text-slate-800" id="mem-rate">-</span>
-                </div>
-                <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
-                    <div>
-                        <p class="font-medium text-slate-800">货币单位</p>
-                        <p class="text-sm text-slate-500">计费货币</p>
-                    </div>
-                    <span class="text-xl font-bold text-slate-800" id="currency">-</span>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">GPU单价 (元/卡/时)</label>
+                    <input type="number" step="0.01" id="billing-gpu_per_hour" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                 </div>
             </div>
-            <div class="mt-4 p-4 bg-amber-50 rounded-lg border border-amber-200">
-                <p class="text-sm text-amber-800">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    如需修改费率配置，请编辑 /etc/slurm-bill/config.yaml 文件
-                </p>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">内存单价 (元/GB/时)</label>
+                    <input type="number" step="0.001" id="billing-memory_gb_per_hour" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">节点单价 (元/节点/时)</label>
+                    <input type="number" step="0.01" id="billing-node_per_hour" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">货币单位</label>
+                    <input type="text" id="billing-currency" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">最低消费 (元)</label>
+                    <input type="number" step="0.01" id="billing-min_charge" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">精度</label>
+                    <input type="text" id="billing-rounding" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">计费模式</label>
+                <select id="billing-mode" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                    <option value="linear">线性计费 (linear)</option>
+                    <option value="tiered">阶梯计费 (tiered)</option>
+                </select>
             </div>
         </div>
     </div>
-    
+
     <!-- 分区倍率配置 -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200" id="section-partitions">
         <div class="p-6 border-b border-slate-200">
             <h3 class="text-lg font-semibold text-slate-800">
                 <i class="fas fa-server text-blue-500 mr-2"></i>
                 分区倍率
             </h3>
+            <p class="text-sm text-slate-500 mt-1">配置不同分区的计费倍率</p>
         </div>
         <div class="p-6">
-            <div class="space-y-3" id="partitions-config">
-                <!-- Dynamic content -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-700 mb-1">默认倍率</label>
+                <input type="number" step="0.1" id="partitions-default_multiplier" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
             </div>
-            <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <p class="text-sm text-blue-800">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    分区倍率用于调整不同分区的计费价格
-                </p>
+            <div class="mb-2 flex items-center justify-between">
+                <label class="block text-sm font-medium text-slate-700">特定分区配置</label>
+                <button onclick="addPartition()" class="text-sm text-primary-600 hover:text-primary-700">
+                    <i class="fas fa-plus mr-1"></i>添加分区
+                </button>
+            </div>
+            <div id="partitions-list" class="space-y-2 max-h-60 overflow-y-auto">
+                <!-- Dynamic partition inputs -->
             </div>
         </div>
     </div>
-    
+
     <!-- 折扣配置 -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200" id="section-discounts">
         <div class="p-6 border-b border-slate-200">
             <h3 class="text-lg font-semibold text-slate-800">
                 <i class="fas fa-percentage text-emerald-500 mr-2"></i>
                 折扣配置
             </h3>
+            <p class="text-sm text-slate-500 mt-1">配置账户和用户的折扣（0.0-1.0，1.0表示免费）</p>
         </div>
-        <div class="p-6">
-            <div class="mb-6">
-                <h4 class="font-medium text-slate-700 mb-3">账户折扣</h4>
-                <div class="space-y-2" id="account-discounts">
-                    <!-- Dynamic content -->
-                </div>
-            </div>
+        <div class="p-6 space-y-4">
             <div>
-                <h4 class="font-medium text-slate-700 mb-3">用户折扣</h4>
-                <div class="space-y-2" id="user-discounts">
-                    <!-- Dynamic content -->
+                <div class="mb-2 flex items-center justify-between">
+                    <label class="block text-sm font-medium text-slate-700">账户折扣</label>
+                    <button onclick="addAccountDiscount()" class="text-sm text-primary-600 hover:text-primary-700">
+                        <i class="fas fa-plus mr-1"></i>添加账户
+                    </button>
+                </div>
+                <div id="account-discounts-list" class="space-y-2 max-h-40 overflow-y-auto">
+                    <!-- Dynamic account discount inputs -->
                 </div>
             </div>
-            <div class="mt-4 p-4 bg-emerald-50 rounded-lg border border-emerald-200">
-                <p class="text-sm text-emerald-800">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    折扣为 0 表示无折扣，1.0 表示免费
-                </p>
+            <div class="border-t border-slate-200 pt-4">
+                <div class="mb-2 flex items-center justify-between">
+                    <label class="block text-sm font-medium text-slate-700">用户折扣</label>
+                    <button onclick="addUserDiscount()" class="text-sm text-primary-600 hover:text-primary-700">
+                        <i class="fas fa-plus mr-1"></i>添加用户
+                    </button>
+                </div>
+                <div id="user-discounts-list" class="space-y-2 max-h-40 overflow-y-auto">
+                    <!-- Dynamic user discount inputs -->
+                </div>
             </div>
         </div>
     </div>
-    
-    <!-- 系统信息 -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200">
+
+    <!-- 数据库配置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200" id="section-database">
         <div class="p-6 border-b border-slate-200">
             <h3 class="text-lg font-semibold text-slate-800">
-                <i class="fas fa-info-circle text-primary-500 mr-2"></i>
-                系统信息
+                <i class="fas fa-database text-purple-500 mr-2"></i>
+                数据库配置
             </h3>
+            <p class="text-sm text-slate-500 mt-1">配置数据库和备份设置</p>
         </div>
-        <div class="p-6">
-            <div class="space-y-4">
-                <div class="flex items-center justify-between py-3 border-b border-slate-100">
-                    <span class="text-slate-600">系统版本</span>
-                    <span class="font-medium">v2.0.0</span>
+        <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">数据库路径</label>
+                <input type="text" id="database-path" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">数据保留天数 (0=永久)</label>
+                    <input type="number" id="database-retention_days" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                 </div>
-                <div class="flex items-center justify-between py-3 border-b border-slate-100">
-                    <span class="text-slate-600">数据库路径</span>
-                    <span class="font-mono text-sm text-slate-800">/var/lib/slurm-bill/billing.db</span>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">备份保留数量</label>
+                    <input type="number" id="database-backup-keep_count" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
                 </div>
-                <div class="flex items-center justify-between py-3 border-b border-slate-100">
-                    <span class="text-slate-600">配置文件路径</span>
-                    <span class="font-mono text-sm text-slate-800">/etc/slurm-bill/config.yaml</span>
+            </div>
+            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span class="text-sm text-slate-700">启用自动备份</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="database-backup-enabled" class="sr-only peer">
+                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                </label>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">备份路径</label>
+                <input type="text" id="database-backup-path" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm">
+            </div>
+        </div>
+    </div>
+
+    <!-- 报表配置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200" id="section-reporting">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-chart-bar text-cyan-500 mr-2"></i>
+                报表配置
+            </h3>
+            <p class="text-sm text-slate-500 mt-1">配置报表生成和邮件通知</p>
+        </div>
+        <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">默认报表周期</label>
+                <select id="reporting-default_cycle" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                    <option value="monthly">每月</option>
+                    <option value="weekly">每周</option>
+                    <option value="daily">每天</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">报表导出路径</label>
+                <input type="text" id="reporting-export_path" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm">
+            </div>
+            <div class="border-t border-slate-200 pt-4">
+                <div class="flex items-center justify-between mb-4">
+                    <span class="text-sm font-medium text-slate-700">邮件通知</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="reporting-email-enabled" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
                 </div>
-                <div class="flex items-center justify-between py-3">
-                    <span class="text-slate-600">Web界面</span>
-                    <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">运行中</span>
+                <div id="email-config" class="space-y-3 hidden">
+                    <div class="grid grid-cols-2 gap-3">
+                        <input type="text" id="reporting-email-smtp_server" placeholder="SMTP服务器" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                        <input type="number" id="reporting-email-smtp_port" placeholder="端口" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                    </div>
+                    <input type="text" id="reporting-email-username" placeholder="用户名" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                    <input type="password" id="reporting-email-password" placeholder="密码" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                    <input type="text" id="reporting-email-from_addr" placeholder="发件人地址" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm">
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- 配额限制配置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200" id="section-quotas">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-tachometer-alt text-red-500 mr-2"></i>
+                配额限制
+            </h3>
+            <p class="text-sm text-slate-500 mt-1">配置账户月度消费配额</p>
+        </div>
+        <div class="p-6 space-y-4">
+            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span class="text-sm text-slate-700">启用配额检查</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="quotas-enabled" class="sr-only peer">
+                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                </label>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">默认账户配额 (元/月)</label>
+                <input type="number" step="0.01" id="quotas-default_account_quota" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+            </div>
+            <div>
+                <div class="mb-2 flex items-center justify-between">
+                    <label class="block text-sm font-medium text-slate-700">特定账户配额</label>
+                    <button onclick="addAccountQuota()" class="text-sm text-primary-600 hover:text-primary-700">
+                        <i class="fas fa-plus mr-1"></i>添加账户
+                    </button>
+                </div>
+                <div id="account-quotas-list" class="space-y-2 max-h-40 overflow-y-auto">
+                    <!-- Dynamic account quota inputs -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志配置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200" id="section-logging">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-file-alt text-gray-500 mr-2"></i>
+                日志配置
+            </h3>
+            <p class="text-sm text-slate-500 mt-1">配置日志级别和存储</p>
+        </div>
+        <div class="p-6 space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">日志级别</label>
+                <select id="logging-level" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">日志路径</label>
+                <input type="text" id="logging-path" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">最大文件大小 (MB)</label>
+                    <input type="number" id="logging-max_size_mb" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">备份数量</label>
+                    <input type="number" id="logging-backup_count" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Web界面配置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200" id="section-web">
+        <div class="p-6 border-b border-slate-200">
+            <h3 class="text-lg font-semibold text-slate-800">
+                <i class="fas fa-globe text-indigo-500 mr-2"></i>
+                Web界面配置
+            </h3>
+            <p class="text-sm text-slate-500 mt-1">配置Web服务参数</p>
+        </div>
+        <div class="p-6 space-y-4">
+            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span class="text-sm text-slate-700">启用Web界面</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="web-enabled" class="sr-only peer">
+                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                </label>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">监听地址</label>
+                    <input type="text" id="web-host" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">端口</label>
+                    <input type="number" id="web-port" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+            </div>
+            <div class="border-t border-slate-200 pt-4">
+                <div class="flex items-center justify-between mb-4">
+                    <span class="text-sm font-medium text-slate-700">启用认证</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="web-auth-enabled" class="sr-only peer">
+                        <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    </label>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">管理员密码</label>
+                    <input type="password" id="web-auth-admin_password" placeholder="不修改请留空" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+                </div>
+            </div>
+            <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <span class="text-sm text-slate-700">Slurm-Web集成</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="web-slurm_web_integration-enabled" class="sr-only peer">
+                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                </label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 保存成功提示 -->
+<div id="save-success" class="fixed top-6 right-6 bg-emerald-500 text-white px-6 py-3 rounded-lg shadow-lg hidden z-50">
+    <i class="fas fa-check-circle mr-2"></i>配置已保存
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+let currentConfig = {};
+
 async function loadConfig() {
     try {
         showLoading();
@@ -147,69 +352,350 @@ async function loadConfig() {
         
         if (!result.success) throw new Error(result.error);
         
-        const config = result.data;
+        currentConfig = result.data;
         
-        // Billing rates
-        document.getElementById('cpu-rate').textContent = formatMoney(config.billing.cpu_per_hour) + '/核/时';
-        document.getElementById('gpu-rate').textContent = formatMoney(config.billing.gpu_per_hour) + '/卡/时';
-        document.getElementById('mem-rate').textContent = formatMoney(config.billing.memory_gb_per_hour) + '/GB/时';
-        document.getElementById('currency').textContent = config.currency;
+        // 填充计费费率
+        setValue('billing-cpu_per_hour', currentConfig.billing?.cpu_per_hour);
+        setValue('billing-gpu_per_hour', currentConfig.billing?.gpu_per_hour);
+        setValue('billing-memory_gb_per_hour', currentConfig.billing?.memory_gb_per_hour);
+        setValue('billing-node_per_hour', currentConfig.billing?.node_per_hour);
+        setValue('billing-currency', currentConfig.billing?.currency);
+        setValue('billing-min_charge', currentConfig.billing?.min_charge);
+        setValue('billing-rounding', currentConfig.billing?.rounding);
+        setValue('billing-mode', currentConfig.billing?.mode);
         
-        // Partitions
-        const partitionsDiv = document.getElementById('partitions-config');
-        partitionsDiv.innerHTML = '';
-        if (config.partitions) {
-            Object.entries(config.partitions).forEach(([name, multiplier]) => {
-                const colorClass = multiplier > 1 ? 'text-amber-600' : (multiplier < 1 ? 'text-emerald-600' : 'text-slate-600');
-                partitionsDiv.innerHTML += `
-                    <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                        <span class="font-medium text-slate-800">${name}</span>
-                        <span class="font-bold ${colorClass}">${multiplier}x</span>
-                    </div>
-                `;
-            });
-        }
+        // 填充分区配置
+        setValue('partitions-default_multiplier', currentConfig.partitions?.default_multiplier);
+        loadPartitions(currentConfig.partitions);
         
-        // Discounts
-        const accountDiscountsDiv = document.getElementById('account-discounts');
-        accountDiscountsDiv.innerHTML = '';
-        if (config.discounts && config.discounts.accounts) {
-            Object.entries(config.discounts.accounts).forEach(([account, discount]) => {
-                const percent = (discount * 100).toFixed(0);
-                accountDiscountsDiv.innerHTML += `
-                    <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                        <span class="font-medium text-slate-800">${account}</span>
-                        <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">${percent}% 折扣</span>
-                    </div>
-                `;
-            });
-        }
-        if (accountDiscountsDiv.innerHTML === '') {
-            accountDiscountsDiv.innerHTML = '<p class="text-slate-400 text-sm">暂无账户折扣配置</p>';
-        }
+        // 填充折扣配置
+        loadDiscounts(currentConfig.discounts);
         
-        const userDiscountsDiv = document.getElementById('user-discounts');
-        userDiscountsDiv.innerHTML = '';
-        if (config.discounts && config.discounts.users) {
-            Object.entries(config.discounts.users).forEach(([user, discount]) => {
-                const percent = (discount * 100).toFixed(0);
-                userDiscountsDiv.innerHTML += `
-                    <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                        <span class="font-medium text-slate-800">${user}</span>
-                        <span class="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs font-medium">${percent}% 折扣</span>
-                    </div>
-                `;
-            });
+        // 填充数据库配置
+        setValue('database-path', currentConfig.database?.path);
+        setValue('database-retention_days', currentConfig.database?.retention_days);
+        setChecked('database-backup-enabled', currentConfig.database?.backup?.enabled);
+        setValue('database-backup-path', currentConfig.database?.backup?.path);
+        setValue('database-backup-keep_count', currentConfig.database?.backup?.keep_count);
+        
+        // 填充报表配置
+        setValue('reporting-default_cycle', currentConfig.reporting?.default_cycle);
+        setValue('reporting-export_path', currentConfig.reporting?.export_path);
+        setChecked('reporting-email-enabled', currentConfig.reporting?.email?.enabled);
+        if (currentConfig.reporting?.email?.enabled) {
+            document.getElementById('email-config').classList.remove('hidden');
         }
-        if (userDiscountsDiv.innerHTML === '') {
-            userDiscountsDiv.innerHTML = '<p class="text-slate-400 text-sm">暂无用户折扣配置</p>';
-        }
+        setValue('reporting-email-smtp_server', currentConfig.reporting?.email?.smtp_server);
+        setValue('reporting-email-smtp_port', currentConfig.reporting?.email?.smtp_port);
+        setValue('reporting-email-username', currentConfig.reporting?.email?.username);
+        setValue('reporting-email-from_addr', currentConfig.reporting?.email?.from_addr);
+        
+        // 填充配额配置
+        setChecked('quotas-enabled', currentConfig.quotas?.enabled);
+        setValue('quotas-default_account_quota', currentConfig.quotas?.default_account_quota);
+        loadAccountQuotas(currentConfig.quotas?.account_quotas);
+        
+        // 填充日志配置
+        setValue('logging-level', currentConfig.logging?.level);
+        setValue('logging-path', currentConfig.logging?.path);
+        setValue('logging-max_size_mb', currentConfig.logging?.max_size_mb);
+        setValue('logging-backup_count', currentConfig.logging?.backup_count);
+        
+        // 填充Web配置
+        setChecked('web-enabled', currentConfig.web?.enabled);
+        setValue('web-host', currentConfig.web?.host);
+        setValue('web-port', currentConfig.web?.port);
+        setChecked('web-auth-enabled', currentConfig.web?.auth?.enabled);
+        setChecked('web-slurm_web_integration-enabled', currentConfig.web?.slurm_web_integration?.enabled);
+        
     } catch (error) {
         console.error('加载配置失败:', error);
+        alert('加载配置失败: ' + error.message);
     } finally {
         hideLoading();
     }
 }
+
+function setValue(id, value) {
+    const el = document.getElementById(id);
+    if (el && value !== undefined && value !== null) {
+        el.value = value;
+    }
+}
+
+function setChecked(id, checked) {
+    const el = document.getElementById(id);
+    if (el) {
+        el.checked = !!checked;
+    }
+}
+
+function loadPartitions(partitions) {
+    const container = document.getElementById('partitions-list');
+    container.innerHTML = '';
+    if (partitions) {
+        Object.entries(partitions).forEach(([name, multiplier]) => {
+            if (name !== 'default_multiplier') {
+                addPartition(name, multiplier);
+            }
+        });
+    }
+}
+
+function addPartition(name = '', multiplier = 1.0) {
+    const container = document.getElementById('partitions-list');
+    const id = 'partition-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2';
+    div.innerHTML = `
+        <input type="text" placeholder="分区名" value="${name}" class="partition-name flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <input type="number" step="0.1" placeholder="倍率" value="${multiplier}" class="partition-multiplier w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <button onclick="this.parentElement.remove()" class="text-red-500 hover:text-red-700 px-2">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+    container.appendChild(div);
+}
+
+function loadDiscounts(discounts) {
+    // 账户折扣
+    const accountContainer = document.getElementById('account-discounts-list');
+    accountContainer.innerHTML = '';
+    if (discounts?.accounts) {
+        Object.entries(discounts.accounts).forEach(([account, discount]) => {
+            addAccountDiscount(account, discount);
+        });
+    }
+    
+    // 用户折扣
+    const userContainer = document.getElementById('user-discounts-list');
+    userContainer.innerHTML = '';
+    if (discounts?.users) {
+        Object.entries(discounts.users).forEach(([user, discount]) => {
+            addUserDiscount(user, discount);
+        });
+    }
+}
+
+function addAccountDiscount(account = '', discount = 0) {
+    const container = document.getElementById('account-discounts-list');
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2';
+    div.innerHTML = `
+        <input type="text" placeholder="账户名" value="${account}" class="discount-account flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <input type="number" step="0.01" min="0" max="1" placeholder="折扣 (0-1)" value="${discount}" class="discount-value w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <button onclick="this.parentElement.remove()" class="text-red-500 hover:text-red-700 px-2">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+    container.appendChild(div);
+}
+
+function addUserDiscount(user = '', discount = 0) {
+    const container = document.getElementById('user-discounts-list');
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2';
+    div.innerHTML = `
+        <input type="text" placeholder="用户名" value="${user}" class="discount-user flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <input type="number" step="0.01" min="0" max="1" placeholder="折扣 (0-1)" value="${discount}" class="discount-value w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <button onclick="this.parentElement.remove()" class="text-red-500 hover:text-red-700 px-2">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+    container.appendChild(div);
+}
+
+function loadAccountQuotas(quotas) {
+    const container = document.getElementById('account-quotas-list');
+    container.innerHTML = '';
+    if (quotas) {
+        Object.entries(quotas).forEach(([account, quota]) => {
+            addAccountQuota(account, quota);
+        });
+    }
+}
+
+function addAccountQuota(account = '', quota = '') {
+    const container = document.getElementById('account-quotas-list');
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-2';
+    div.innerHTML = `
+        <input type="text" placeholder="账户名" value="${account}" class="quota-account flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <input type="number" step="0.01" placeholder="配额 (元/月)" value="${quota}" class="quota-value w-32 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+        <button onclick="this.parentElement.remove()" class="text-red-500 hover:text-red-700 px-2">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+    container.appendChild(div);
+}
+
+function collectConfig() {
+    const config = {};
+    
+    // 计费费率
+    config.billing = {
+        cpu_per_hour: parseFloat(document.getElementById('billing-cpu_per_hour').value) || 0,
+        gpu_per_hour: parseFloat(document.getElementById('billing-gpu_per_hour').value) || 0,
+        memory_gb_per_hour: parseFloat(document.getElementById('billing-memory_gb_per_hour').value) || 0,
+        node_per_hour: parseFloat(document.getElementById('billing-node_per_hour').value) || 0,
+        currency: document.getElementById('billing-currency').value || 'CNY',
+        min_charge: parseFloat(document.getElementById('billing-min_charge').value) || 0.01,
+        rounding: document.getElementById('billing-rounding').value || '0.01',
+        mode: document.getElementById('billing-mode').value || 'linear'
+    };
+    
+    // 分区配置
+    config.partitions = {
+        default_multiplier: parseFloat(document.getElementById('partitions-default_multiplier').value) || 1.0
+    };
+    document.querySelectorAll('#partitions-list > div').forEach(div => {
+        const name = div.querySelector('.partition-name').value.trim();
+        const multiplier = parseFloat(div.querySelector('.partition-multiplier').value);
+        if (name) {
+            config.partitions[name] = multiplier;
+        }
+    });
+    
+    // 折扣配置
+    config.discounts = { accounts: {}, users: {} };
+    document.querySelectorAll('#account-discounts-list > div').forEach(div => {
+        const account = div.querySelector('.discount-account').value.trim();
+        const discount = parseFloat(div.querySelector('.discount-value').value);
+        if (account) {
+            config.discounts.accounts[account] = discount;
+        }
+    });
+    document.querySelectorAll('#user-discounts-list > div').forEach(div => {
+        const user = div.querySelector('.discount-user').value.trim();
+        const discount = parseFloat(div.querySelector('.discount-value').value);
+        if (user) {
+            config.discounts.users[user] = discount;
+        }
+    });
+    
+    // 数据库配置
+    config.database = {
+        path: document.getElementById('database-path').value || '/var/lib/slurm-bill/billing.db',
+        retention_days: parseInt(document.getElementById('database-retention_days').value) || 0,
+        backup: {
+            enabled: document.getElementById('database-backup-enabled').checked,
+            path: document.getElementById('database-backup-path').value || '/var/backups/slurm-bill',
+            keep_count: parseInt(document.getElementById('database-backup-keep_count').value) || 30
+        }
+    };
+    
+    // 报表配置
+    config.reporting = {
+        default_cycle: document.getElementById('reporting-default_cycle').value || 'monthly',
+        export_path: document.getElementById('reporting-export_path').value || '/var/lib/slurm-bill/reports',
+        email: {
+            enabled: document.getElementById('reporting-email-enabled').checked,
+            smtp_server: document.getElementById('reporting-email-smtp_server').value || '',
+            smtp_port: parseInt(document.getElementById('reporting-email-smtp_port').value) || 587,
+            username: document.getElementById('reporting-email-username').value || '',
+            from_addr: document.getElementById('reporting-email-from_addr').value || ''
+        }
+    };
+    // 只在输入了新密码时才包含密码字段
+    const emailPassword = document.getElementById('reporting-email-password').value;
+    if (emailPassword) {
+        config.reporting.email.password = emailPassword;
+    }
+    
+    // 配额配置
+    config.quotas = {
+        enabled: document.getElementById('quotas-enabled').checked,
+        default_account_quota: parseFloat(document.getElementById('quotas-default_account_quota').value) || 10000,
+        account_quotas: {}
+    };
+    document.querySelectorAll('#account-quotas-list > div').forEach(div => {
+        const account = div.querySelector('.quota-account').value.trim();
+        const quota = parseFloat(div.querySelector('.quota-value').value);
+        if (account) {
+            config.quotas.account_quotas[account] = quota;
+        }
+    });
+    
+    // 日志配置
+    config.logging = {
+        level: document.getElementById('logging-level').value || 'INFO',
+        path: document.getElementById('logging-path').value || '/var/log/slurm-bill',
+        max_size_mb: parseInt(document.getElementById('logging-max_size_mb').value) || 100,
+        backup_count: parseInt(document.getElementById('logging-backup_count').value) || 10
+    };
+    
+    // Web配置
+    config.web = {
+        enabled: document.getElementById('web-enabled').checked,
+        host: document.getElementById('web-host').value || '0.0.0.0',
+        port: parseInt(document.getElementById('web-port').value) || 8080,
+        auth: {
+            enabled: document.getElementById('web-auth-enabled').checked
+        },
+        slurm_web_integration: {
+            enabled: document.getElementById('web-slurm_web_integration-enabled').checked
+        }
+    };
+    // 只在输入了新密码时才包含密码字段
+    const adminPassword = document.getElementById('web-auth-admin_password').value;
+    if (adminPassword) {
+        config.web.auth.admin_password = adminPassword;
+    }
+    
+    return config;
+}
+
+async function saveConfig() {
+    try {
+        showLoading();
+        const config = collectConfig();
+        
+        const response = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showSaveSuccess();
+            // 重新加载配置以刷新显示
+            await loadConfig();
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        console.error('保存配置失败:', error);
+        alert('保存配置失败: ' + error.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function showSaveSuccess() {
+    const el = document.getElementById('save-success');
+    el.classList.remove('hidden');
+    setTimeout(() => {
+        el.classList.add('hidden');
+    }, 3000);
+}
+
+function resetConfig() {
+    if (confirm('确定要重置所有更改吗？未保存的修改将丢失。')) {
+        loadConfig();
+    }
+}
+
+// 邮件配置显示/隐藏
+document.getElementById('reporting-email-enabled')?.addEventListener('change', function() {
+    const configDiv = document.getElementById('email-config');
+    if (this.checked) {
+        configDiv.classList.remove('hidden');
+    } else {
+        configDiv.classList.add('hidden');
+    }
+});
 
 document.addEventListener('DOMContentLoaded', loadConfig);
 </script>

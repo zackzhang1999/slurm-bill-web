@@ -178,23 +178,61 @@ class DatabaseManager:
             logger.info("数据库表初始化完成")
     
     def insert_job(self, job: JobRecord) -> bool:
-        """插入作业记录"""
+        """插入或更新作业记录"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT OR IGNORE INTO job_records 
-                    (job_id, job_name, user, account, partition, state,
-                     submit_time, start_time, end_time, elapsed, elapsed_seconds,
-                     ncpus, nnodes, req_mem, max_rss_mb, alloc_gpus,
-                     billing_units, cost, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    job.job_id, job.job_name, job.user, job.account, job.partition, job.state,
-                    job.submit_time, job.start_time, job.end_time, job.elapsed, job.elapsed_seconds,
-                    job.ncpus, job.nnodes, job.req_mem, job.max_rss_mb, job.alloc_gpus,
-                    str(job.billing_units), str(job.cost), job.created_at
-                ))
+                
+                # 先检查是否存在相同 job_id 的记录
+                cursor.execute('SELECT id FROM job_records WHERE job_id = ?', (job.job_id,))
+                existing = cursor.fetchone()
+                
+                if existing:
+                    # 更新已有记录
+                    cursor.execute('''
+                        UPDATE job_records SET
+                            job_name = ?,
+                            user = ?,
+                            account = ?,
+                            partition = ?,
+                            state = ?,
+                            submit_time = ?,
+                            start_time = ?,
+                            end_time = ?,
+                            elapsed = ?,
+                            elapsed_seconds = ?,
+                            ncpus = ?,
+                            nnodes = ?,
+                            req_mem = ?,
+                            max_rss_mb = ?,
+                            alloc_gpus = ?,
+                            billing_units = ?,
+                            cost = ?,
+                            created_at = ?
+                        WHERE job_id = ?
+                    ''', (
+                        job.job_name, job.user, job.account, job.partition, job.state,
+                        job.submit_time, job.start_time, job.end_time, job.elapsed, job.elapsed_seconds,
+                        job.ncpus, job.nnodes, job.req_mem, job.max_rss_mb, job.alloc_gpus,
+                        str(job.billing_units), str(job.cost), job.created_at,
+                        job.job_id
+                    ))
+                else:
+                    # 插入新记录
+                    cursor.execute('''
+                        INSERT INTO job_records 
+                        (job_id, job_name, user, account, partition, state,
+                         submit_time, start_time, end_time, elapsed, elapsed_seconds,
+                         ncpus, nnodes, req_mem, max_rss_mb, alloc_gpus,
+                         billing_units, cost, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        job.job_id, job.job_name, job.user, job.account, job.partition, job.state,
+                        job.submit_time, job.start_time, job.end_time, job.elapsed, job.elapsed_seconds,
+                        job.ncpus, job.nnodes, job.req_mem, job.max_rss_mb, job.alloc_gpus,
+                        str(job.billing_units), str(job.cost), job.created_at
+                    ))
+                
                 conn.commit()
                 return cursor.rowcount > 0
         except sqlite3.Error as e:
@@ -280,42 +318,72 @@ class SlurmCollector:
     @staticmethod
     def run_sacct(start_time: datetime.datetime = None,
                   end_time: datetime.datetime = None) -> List[Dict]:
-        """运行 sacct 命令获取作业数据"""
+        """运行 sacct 命令获取作业数据（包括数组作业和作业步）"""
         
         # 构建时间参数
+        # 注意：sacct 的 --starttime 基于 End 时间过滤，行为有些特殊
+        # 为了获取所有相关作业，我们需要：
+        # 1. 扩大开始时间范围（提前15天），确保能获取到结束时间较早的作业
+        # 2. 不使用 --endtime 参数，避免过滤掉结束时间未知的作业（如 PENDING）
         if start_time:
-            start_str = start_time.strftime('%Y-%m-%dT%H:%M:%S')
-            end_str = end_time.strftime('%Y-%m-%dT%H:%M:%S') if end_time else 'now'
-            time_arg = f"--starttime={start_str} --endtime={end_str}"
+            # 向后扩展15天，确保覆盖到结束时间较早的作业
+            extended_start = start_time - datetime.timedelta(days=15)
+            start_str = extended_start.strftime('%Y-%m-%dT%H:%M:%S')
+            time_arg = f"--starttime={start_str}"
         else:
             # 默认获取最近24小时的作业
-            # 使用标准日期格式以确保兼容性
-            from datetime import datetime, timedelta
-            start_str = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%S')
+            start_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S')
             time_arg = f"--starttime={start_str}"
         
-        cmd = (
-            f"sacct -a -P -D --format="
+        # 第一步：获取所有主作业（使用 --duplicates 获取所有记录，包括 REQUEUED/PENDING/CANCELLED 等）
+        cmd_main = (
+            f"sacct -a -P --duplicates --format="
+            f"JobID,JobName,User,Account,Partition,State,Submit,Start,End,Elapsed,"
+            f"NCPUS,NNodes,ReqMem,MaxRSS,AllocTRES "
+            f"{time_arg} --noheader"
+        )
+        
+        # 第二步：获取所有作业步（包括数组作业步）
+        cmd_steps = (
+            f"sacct -a -P --duplicates --format="
             f"JobID,JobName,User,Account,Partition,State,Submit,Start,End,Elapsed,"
             f"NCPUS,NNodes,ReqMem,MaxRSS,AllocTRES "
             f"{time_arg} --noheader"
         )
         
         try:
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=300
+            # 获取主作业
+            result_main = subprocess.run(
+                cmd_main, shell=True, capture_output=True, text=True, timeout=300
             )
-            if result.returncode != 0:
-                logger.error(f"sacct 执行失败: {result.stderr}")
+            if result_main.returncode != 0:
+                logger.error(f"sacct 主作业查询失败: {result_main.stderr}")
                 return []
             
-            jobs = []
-            for line in result.stdout.strip().split('\n'):
+            # 获取所有作业步
+            result_steps = subprocess.run(
+                cmd_steps, shell=True, capture_output=True, text=True, timeout=300
+            )
+            
+            # 解析主作业，建立基础信息映射
+            # 注意：同一个 job_id 可能有多个记录（REQUEUED、PENDING、CANCELLED等）
+            # 我们需要选择最准确的记录（优先有实际结束时间的）
+            main_jobs = {}
+            for line in result_main.stdout.strip().split('\n'):
                 if not line:
                     continue
                 
                 parts = line.split('|')
                 if len(parts) < 15:
+                    continue
+                
+                job_id = parts[0].strip()
+                user = parts[2].strip()
+                end_time = parts[8].strip()
+                state = parts[5].strip()
+                
+                # 跳过 user 为空的记录
+                if not user:
                     continue
                 
                 # 解析 AllocTRES 获取 GPU 信息
@@ -324,21 +392,16 @@ class SlurmCollector:
                 # 解析 MaxRSS
                 max_rss_mb = SlurmCollector._parse_memory(parts[13])
                 
-                user = parts[2].strip()
-                # 跳过 user 为空的记录（作业步或异常数据）
-                if not user:
-                    continue
-                
-                job = {
-                    'job_id': parts[0],
+                job_data = {
+                    'job_id': job_id,
                     'job_name': parts[1],
                     'user': user,
                     'account': parts[3] or 'default',
                     'partition': parts[4],
-                    'state': parts[5],
+                    'state': state,
                     'submit_time': parts[6],
                     'start_time': parts[7],
-                    'end_time': parts[8],
+                    'end_time': end_time,
                     'elapsed': parts[9],
                     'elapsed_seconds': SlurmCollector._parse_elapsed(parts[9]),
                     'ncpus': int(parts[10]) if parts[10].isdigit() else 1,
@@ -346,10 +409,143 @@ class SlurmCollector:
                     'req_mem': parts[12],
                     'max_rss_mb': max_rss_mb,
                     'alloc_gpus': alloc_gpus,
+                    'is_array': False,
                 }
-                jobs.append(job)
+                
+                # 如果已存在相同 job_id 的记录，选择更准确的
+                if job_id in main_jobs:
+                    existing = main_jobs[job_id]
+                    existing_end = existing.get('end_time', '')
+                    
+                    # 优先选择有实际结束时间的（非 Unknown/None）
+                    has_end_time = end_time and end_time not in ('Unknown', 'None', '')
+                    existing_has_end = existing_end and existing_end not in ('Unknown', 'None', '')
+                    
+                    if has_end_time and not existing_has_end:
+                        # 新记录有结束时间，旧记录没有，使用新记录
+                        main_jobs[job_id] = job_data
+                    elif has_end_time and existing_has_end:
+                        # 两者都有结束时间，选择结束时间更晚的（最新的）
+                        if end_time > existing_end:
+                            main_jobs[job_id] = job_data
+                    # 如果新记录没有结束时间但旧记录有，保留旧记录
+                else:
+                    main_jobs[job_id] = job_data
             
-            logger.info(f"成功收集 {len(jobs)} 条作业记录")
+            # 解析作业步，合并到主作业或作为独立记录
+            jobs = list(main_jobs.values())
+            processed_steps = set()
+            
+            # 用于收集每个主作业的所有作业步状态
+            job_step_states = {}
+            
+            if result_steps.returncode == 0:
+                for line in result_steps.stdout.strip().split('\n'):
+                    if not line:
+                        continue
+                    
+                    parts = line.split('|')
+                    if len(parts) < 15:
+                        continue
+                    
+                    job_id = parts[0].strip()
+                    user = parts[2].strip()
+                    step_state = parts[5].strip()
+                    
+                    # 跳过主作业（已处理）
+                    if job_id in main_jobs:
+                        continue
+                    
+                    # 解析数组作业ID (如 203.0, 203_0, 203_[0])
+                    base_job_id = SlurmCollector._get_base_job_id(job_id)
+                    
+                    # 如果这是数组作业步且主作业存在，合并资源使用和状态
+                    if base_job_id and base_job_id in main_jobs:
+                        main_job = main_jobs[base_job_id]
+                        
+                        # 收集作业步状态
+                        if base_job_id not in job_step_states:
+                            job_step_states[base_job_id] = []
+                        job_step_states[base_job_id].append(step_state)
+                        
+                        # 累加资源使用（只处理一次每个作业步）
+                        step_key = f"{base_job_id}:{job_id}"
+                        if step_key not in processed_steps:
+                            processed_steps.add(step_key)
+                            
+                            # 解析资源
+                            step_gpus = SlurmCollector._parse_gpu_count(parts[14])
+                            step_rss = SlurmCollector._parse_memory(parts[13])
+                            step_ncpus = int(parts[10]) if parts[10].isdigit() else 0
+                            step_elapsed = SlurmCollector._parse_elapsed(parts[9])
+                            
+                            # 累加 GPU 和内存使用
+                            main_job['alloc_gpus'] = max(main_job['alloc_gpus'], step_gpus)
+                            main_job['max_rss_mb'] = max(main_job['max_rss_mb'], step_rss)
+                            
+                            # 标记为数组作业
+                            main_job['is_array'] = True
+                
+                # 根据所有作业步的状态确定主作业的最终状态
+                for base_job_id, states in job_step_states.items():
+                    if base_job_id in main_jobs:
+                        main_job = main_jobs[base_job_id]
+                        main_job['state'] = SlurmCollector._aggregate_job_states(states)
+                    
+                    # 对于独立作业步（如 .batch），如果 user 为空，尝试从主作业继承
+                    elif not user and base_job_id and base_job_id in main_jobs:
+                        main_job = main_jobs[base_job_id]
+                        
+                        # 创建作业步记录（继承主作业信息）
+                        step_data = {
+                            'job_id': job_id,
+                            'job_name': parts[1] or main_job['job_name'],
+                            'user': main_job['user'],
+                            'account': main_job['account'],
+                            'partition': main_job['partition'],
+                            'state': parts[5],
+                            'submit_time': parts[6],
+                            'start_time': parts[7],
+                            'end_time': parts[8],
+                            'elapsed': parts[9],
+                            'elapsed_seconds': SlurmCollector._parse_elapsed(parts[9]),
+                            'ncpus': int(parts[10]) if parts[10].isdigit() else 1,
+                            'nnodes': int(parts[11]) if parts[11].isdigit() else 1,
+                            'req_mem': parts[12],
+                            'max_rss_mb': SlurmCollector._parse_memory(parts[13]),
+                            'alloc_gpus': SlurmCollector._parse_gpu_count(parts[14]),
+                            'is_step': True,
+                            'parent_job_id': base_job_id,
+                        }
+                        jobs.append(step_data)
+                    
+                    # 对于独立的数组作业步（没有主作业），创建新记录
+                    elif user:
+                        step_data = {
+                            'job_id': job_id,
+                            'job_name': parts[1],
+                            'user': user,
+                            'account': parts[3] or 'default',
+                            'partition': parts[4],
+                            'state': parts[5],
+                            'submit_time': parts[6],
+                            'start_time': parts[7],
+                            'end_time': parts[8],
+                            'elapsed': parts[9],
+                            'elapsed_seconds': SlurmCollector._parse_elapsed(parts[9]),
+                            'ncpus': int(parts[10]) if parts[10].isdigit() else 1,
+                            'nnodes': int(parts[11]) if parts[11].isdigit() else 1,
+                            'req_mem': parts[12],
+                            'max_rss_mb': SlurmCollector._parse_memory(parts[13]),
+                            'alloc_gpus': SlurmCollector._parse_gpu_count(parts[14]),
+                            'is_array_step': True,
+                        }
+                        jobs.append(step_data)
+            
+            # 注意：不过滤作业，让调用者决定如何处理
+            # 如果需要按时间过滤，应在调用后处理
+            
+            logger.info(f"成功收集 {len(jobs)} 条作业记录（包含 {len(main_jobs)} 个主作业）")
             return jobs
             
         except subprocess.TimeoutExpired:
@@ -358,6 +554,126 @@ class SlurmCollector:
         except Exception as e:
             logger.error(f"收集作业数据失败: {e}")
             return []
+    
+    @staticmethod
+    def _get_base_job_id(job_id: str) -> Optional[str]:
+        """
+        从作业步ID获取主作业ID
+        例如: '123.0' -> '123', '123.batch' -> '123', '123_0' -> '123'
+        """
+        if not job_id:
+            return None
+        
+        # 处理各种作业步格式
+        # 123.0, 123.batch, 123.extern
+        if '.' in job_id:
+            return job_id.split('.')[0]
+        
+        # 123_0 (某些 Slurm 配置)
+        if '_' in job_id:
+            return job_id.split('_')[0]
+        
+        # 123[0] 或 123_[0] (数组作业表示)
+        if '[' in job_id:
+            return job_id.split('[')[0]
+        
+        return None
+    
+    @staticmethod
+    def _aggregate_job_states(states: List[str]) -> str:
+        """
+        根据所有作业步的状态确定主作业的最终状态
+        
+        状态优先级（从高到低）：
+        RUNNING > PENDING > SUSPENDED > FAILED > TIMEOUT > CANCELLED > COMPLETED
+        
+        特殊处理：
+        - 如果有任意作业步在运行，主作业为 RUNNING
+        - 如果有任意作业步失败，主作业为 FAILED
+        - 如果所有作业步都完成，主作业为 COMPLETED
+        - 如果部分完成部分取消，标记为 PARTIAL
+        """
+        if not states:
+            return 'UNKNOWN'
+        
+        # 状态优先级（数字越大优先级越高）
+        priority = {
+            'RUNNING': 100,
+            'R': 100,
+            'PENDING': 90,
+            'PD': 90,
+            'SUSPENDED': 80,
+            'S': 80,
+            'FAILED': 70,
+            'F': 70,
+            'TIMEOUT': 60,
+            'TO': 60,
+            'NODE_FAIL': 55,
+            'NF': 55,
+            'CANCELLED': 50,
+            'CA': 50,
+            'COMPLETED': 40,
+            'CD': 40,
+            'COMPLETING': 35,
+            'CG': 35,
+        }
+        
+        # 检查是否有特殊状态（如 CANCELLED by xxx）
+        has_cancelled = any('CANCELLED' in s for s in states)
+        cancelled_by = [s for s in states if 'CANCELLED by' in s]
+        
+        # 如果有任意作业在运行，返回 RUNNING
+        if any(s in ['RUNNING', 'R'] for s in states):
+            return 'RUNNING'
+        
+        # 如果有任意作业在等待，返回 PENDING
+        if any(s in ['PENDING', 'PD'] for s in states):
+            return 'PENDING'
+        
+        # 如果有任意作业被暂停，返回 SUSPENDED
+        if any(s in ['SUSPENDED', 'S'] for s in states):
+            return 'SUSPENDED'
+        
+        # 如果有任意作业失败，返回 FAILED
+        if any(s in ['FAILED', 'F'] for s in states):
+            return 'FAILED'
+        
+        # 如果有任意作业超时，返回 TIMEOUT
+        if any(s in ['TIMEOUT', 'TO'] for s in states):
+            return 'TIMEOUT'
+        
+        # 如果有任意作业节点失败，返回 NODE_FAIL
+        if any(s in ['NODE_FAIL', 'NF'] for s in states):
+            return 'NODE_FAIL'
+        
+        # 如果所有作业都完成了，返回 COMPLETED
+        if all(s in ['COMPLETED', 'CD', 'COMPLETING', 'CG'] for s in states):
+            return 'COMPLETED'
+        
+        # 如果有取消的作业
+        if has_cancelled:
+            # 如果有部分完成部分取消，返回 PARTIAL
+            if any(s in ['COMPLETED', 'CD'] for s in states):
+                return 'PARTIAL'
+            # 如果全部被取消，返回 CANCELLED（保留取消者信息）
+            if cancelled_by:
+                # 返回最常见的取消原因
+                from collections import Counter
+                most_common = Counter(cancelled_by).most_common(1)[0][0]
+                return most_common
+            return 'CANCELLED'
+        
+        # 其他情况，返回优先级最高的状态
+        max_priority = -1
+        result_state = 'UNKNOWN'
+        for state in states:
+            base_state = state.split()[0]  # 处理 "CANCELLED by xxx" 这样的情况
+            p = priority.get(base_state, 0)
+            if p > max_priority:
+                max_priority = p
+                result_state = state
+        
+        return result_state
     
     @staticmethod
     def _parse_elapsed(elapsed_str: str) -> int:
@@ -730,6 +1046,15 @@ def main():
     # init 命令
     init_parser = subparsers.add_parser('init', help='初始化数据库')
     
+    # sync 命令 - 同步所有作业（包括数组作业和作业步）
+    sync_parser = subparsers.add_parser('sync', help='同步所有作业数据（补充缺失的作业）')
+    sync_parser.add_argument('--days', '-d', type=int, default=30,
+                            help='同步最近N天的作业（默认：30）')
+    sync_parser.add_argument('--all', '-a', action='store_true',
+                            help='同步所有历史作业')
+    sync_parser.add_argument('--dry-run', '-n', action='store_true',
+                            help='试运行，不实际写入数据库')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -786,6 +1111,84 @@ def main():
         # 数据库已在初始化时创建
         print("数据库初始化完成")
         print(f"数据库路径: /var/lib/slurm-bill/billing.db")
+    
+    elif args.command == 'sync':
+        # 同步所有作业数据
+        from datetime import datetime, timedelta
+        
+        if args.all:
+            start = datetime.now() - timedelta(days=365*10)  # 10年前
+            print("同步所有历史作业...")
+        else:
+            start = datetime.now() - timedelta(days=args.days)
+            print(f"同步最近 {args.days} 天的作业...")
+        
+        end = datetime.now()
+        
+        # 收集作业
+        jobs = engine.collector.run_sacct(start, end)
+        
+        if not jobs:
+            print("没有找到作业数据")
+            sys.exit(0)
+        
+        print(f"\n找到 {len(jobs)} 个作业记录")
+        print(f"{'='*100}")
+        
+        # 统计信息
+        inserted = 0
+        updated = 0
+        skipped = 0
+        
+        for job_data in jobs:
+            # 计算费用
+            billing_units, cost = engine.calculator.calculate_job_cost(job_data)
+            
+            # 创建作业记录
+            job_record = JobRecord(
+                job_id=job_data['job_id'],
+                job_name=job_data['job_name'],
+                user=job_data['user'],
+                account=job_data['account'],
+                partition=job_data['partition'],
+                state=job_data['state'],
+                submit_time=job_data['submit_time'],
+                start_time=job_data['start_time'],
+                end_time=job_data['end_time'],
+                elapsed=job_data['elapsed'],
+                elapsed_seconds=job_data['elapsed_seconds'],
+                ncpus=job_data['ncpus'],
+                nnodes=job_data['nnodes'],
+                req_mem=job_data['req_mem'],
+                max_rss_mb=job_data['max_rss_mb'],
+                alloc_gpus=job_data['alloc_gpus'],
+                billing_units=billing_units,
+                cost=cost
+            )
+            
+            if args.dry_run:
+                # 检查是否已存在
+                existing = engine.db.get_jobs(start_date=job_data['submit_time'], end_date=job_data['end_time'])
+                existing_ids = {j['job_id'] for j in existing}
+                if job_data['job_id'] in existing_ids:
+                    print(f"[DRY-RUN] 将更新: {job_data['job_id']} ({job_data['user']}) - {job_data['state']}")
+                    updated += 1
+                else:
+                    print(f"[DRY-RUN] 将插入: {job_data['job_id']} ({job_data['user']}) - {job_data['state']}")
+                    inserted += 1
+            else:
+                # 实际插入/更新
+                if engine.db.insert_job(job_record):
+                    # 检查是否是更新（通过查询是否存在）
+                    inserted += 1
+                    print(f"已处理: {job_data['job_id']} ({job_data['user']}) - {job_data['state']}")
+        
+        print(f"{'='*100}")
+        print(f"\n同步完成:")
+        print(f"  总作业数: {len(jobs)}")
+        print(f"  新增/更新: {inserted}")
+        if args.dry_run:
+            print(f"  (试运行模式，未实际写入数据库)")
 
 
 if __name__ == '__main__':
