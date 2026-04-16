@@ -174,6 +174,18 @@ class DatabaseManager:
                 )
             ''')
             
+            # 同步状态表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sync_status (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    last_sync_time TEXT NOT NULL,
+                    last_job_id TEXT,
+                    sync_type TEXT DEFAULT 'incremental',
+                    created_at TEXT,
+                    updated_at TEXT
+                )
+            ''')
+            
             conn.commit()
             logger.info("数据库表初始化完成")
     
@@ -310,6 +322,48 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
+    
+    def get_sync_status(self) -> Optional[Dict]:
+        """获取同步状态"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM sync_status ORDER BY id DESC LIMIT 1
+            ''')
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def update_sync_status(self, last_sync_time: str, last_job_id: str = None, sync_type: str = 'incremental') -> bool:
+        """更新同步状态"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                now = datetime.datetime.now().isoformat()
+                
+                # 检查是否存在记录
+                cursor.execute('SELECT id FROM sync_status LIMIT 1')
+                existing = cursor.fetchone()
+                
+                if existing:
+                    cursor.execute('''
+                        UPDATE sync_status SET
+                            last_sync_time = ?,
+                            last_job_id = ?,
+                            sync_type = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                    ''', (last_sync_time, last_job_id, sync_type, now, existing[0]))
+                else:
+                    cursor.execute('''
+                        INSERT INTO sync_status (last_sync_time, last_job_id, sync_type, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (last_sync_time, last_job_id, sync_type, now, now))
+                
+                conn.commit()
+                return True
+        except sqlite3.Error as e:
+            logger.error(f"更新同步状态失败: {e}")
+            return False
 
 
 class SlurmCollector:
@@ -334,6 +388,24 @@ class SlurmCollector:
             # 默认获取最近24小时的作业
             start_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S')
             time_arg = f"--starttime={start_str}"
+        
+        return SlurmCollector._fetch_jobs(time_arg)
+    
+    @staticmethod
+    def run_sacct_incremental(last_sync_time: datetime.datetime = None) -> List[Dict]:
+        """增量获取作业数据 - 只获取自上次同步以来的新作业"""
+        if last_sync_time:
+            start_str = last_sync_time.strftime('%Y-%m-%dT%H:%M:%S')
+            time_arg = f"--starttime={start_str}"
+        else:
+            start_str = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S')
+            time_arg = f"--starttime={start_str}"
+        
+        return SlurmCollector._fetch_jobs(time_arg)
+    
+    @staticmethod
+    def _fetch_jobs(time_arg: str) -> List[Dict]:
+        """核心方法：执行 sacct 命令并解析作业数据"""
         
         # 第一步：获取所有主作业（使用 --duplicates 获取所有记录，包括 REQUEUED/PENDING/CANCELLED 等）
         cmd_main = (
@@ -1047,11 +1119,13 @@ def main():
     init_parser = subparsers.add_parser('init', help='初始化数据库')
     
     # sync 命令 - 同步所有作业（包括数组作业和作业步）
-    sync_parser = subparsers.add_parser('sync', help='同步所有作业数据（补充缺失的作业）')
-    sync_parser.add_argument('--days', '-d', type=int, default=30,
-                            help='同步最近N天的作业（默认：30）')
+    sync_parser = subparsers.add_parser('sync', help='同步作业数据（增量或全量）')
+    sync_parser.add_argument('--days', '-d', type=int, default=2,
+                            help='增量同步最近N天的作业（默认：2）')
     sync_parser.add_argument('--all', '-a', action='store_true',
                             help='同步所有历史作业')
+    sync_parser.add_argument('--full', '-f', action='store_true',
+                            help='强制全量同步（忽略增量状态）')
     sync_parser.add_argument('--dry-run', '-n', action='store_true',
                             help='试运行，不实际写入数据库')
     
@@ -1113,34 +1187,54 @@ def main():
         print(f"数据库路径: /var/lib/slurm-bill/billing.db")
     
     elif args.command == 'sync':
-        # 同步所有作业数据
+        # 同步作业数据 - 支持增量同步和全量同步
         from datetime import datetime, timedelta
         
-        if args.all:
-            start = datetime.now() - timedelta(days=365*10)  # 10年前
-            print("同步所有历史作业...")
+        db = DatabaseManager()
+        
+        # 确定同步模式
+        is_full_sync = args.all or args.full
+        
+        if is_full_sync:
+            if args.all:
+                start = datetime.now() - timedelta(days=365*10)
+                print("全量同步：同步所有历史作业...")
+            else:
+                start = datetime.now() - timedelta(days=args.days)
+                print(f"全量同步：同步最近 {args.days} 天的作业...")
+            sync_type = 'full'
+            jobs = engine.collector.run_sacct(start, datetime.now())
         else:
-            start = datetime.now() - timedelta(days=args.days)
-            print(f"同步最近 {args.days} 天的作业...")
-        
-        end = datetime.now()
-        
-        # 收集作业
-        jobs = engine.collector.run_sacct(start, end)
+            # 增量同步模式
+            sync_status = db.get_sync_status()
+            if sync_status and sync_status.get('last_sync_time'):
+                last_sync = datetime.fromisoformat(sync_status['last_sync_time'])
+                print(f"增量同步：从上次同步时间 {last_sync.strftime('%Y-%m-%d %H:%M:%S')} 开始...")
+                jobs = engine.collector.run_sacct_incremental(last_sync)
+                sync_type = 'incremental'
+            else:
+                print("首次同步，使用默认时间范围（最近2天）...")
+                start = datetime.now() - timedelta(days=2)
+                jobs = engine.collector.run_sacct(start, datetime.now())
+                sync_type = 'first_sync'
         
         if not jobs:
             print("没有找到作业数据")
             sys.exit(0)
         
         print(f"\n找到 {len(jobs)} 个作业记录")
-        print(f"{'='*100}")
+        print(f"{'='*60}")
         
         # 统计信息
         inserted = 0
         updated = 0
         skipped = 0
+        total = len(jobs)
         
-        for job_data in jobs:
+        # 进度显示
+        PROGRESS_INTERVAL = 100
+        
+        for idx, job_data in enumerate(jobs):
             # 计算费用
             billing_units, cost = engine.calculator.calculate_job_cost(job_data)
             
@@ -1166,8 +1260,12 @@ def main():
                 cost=cost
             )
             
+            # 进度显示
+            if (idx + 1) % PROGRESS_INTERVAL == 0 or idx + 1 == total:
+                progress = (idx + 1) / total * 100
+                print(f"进度: {idx + 1}/{total} ({progress:.1f}%)")
+            
             if args.dry_run:
-                # 检查是否已存在
                 existing = engine.db.get_jobs(start_date=job_data['submit_time'], end_date=job_data['end_time'])
                 existing_ids = {j['job_id'] for j in existing}
                 if job_data['job_id'] in existing_ids:
@@ -1177,15 +1275,19 @@ def main():
                     print(f"[DRY-RUN] 将插入: {job_data['job_id']} ({job_data['user']}) - {job_data['state']}")
                     inserted += 1
             else:
-                # 实际插入/更新
                 if engine.db.insert_job(job_record):
-                    # 检查是否是更新（通过查询是否存在）
                     inserted += 1
-                    print(f"已处理: {job_data['job_id']} ({job_data['user']}) - {job_data['state']}")
         
-        print(f"{'='*100}")
+        print(f"{'='*60}")
+        
+        # 更新同步状态
+        if not args.dry_run:
+            now_str = datetime.now().isoformat()
+            db.update_sync_status(now_str, sync_type=sync_type)
+            print(f"同步状态已更新: {now_str} (模式: {sync_type})")
+        
         print(f"\n同步完成:")
-        print(f"  总作业数: {len(jobs)}")
+        print(f"  总作业数: {total}")
         print(f"  新增/更新: {inserted}")
         if args.dry_run:
             print(f"  (试运行模式，未实际写入数据库)")
