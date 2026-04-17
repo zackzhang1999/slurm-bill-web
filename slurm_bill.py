@@ -1126,7 +1126,7 @@ def main():
     # sync 命令 - 同步所有作业（包括数组作业和作业步）
     sync_parser = subparsers.add_parser('sync', help='同步所有作业数据（补充缺失的作业）')
     sync_parser.add_argument('--days', '-d', type=int, default=30,
-                            help='同步最近N天的作业（默认：30）')
+                            help='同步最近N天的作业（默认：30）注意：sacct按end_time过滤，过短的Days可能丢失历史数据')
     sync_parser.add_argument('--starttime', '-s', type=str,
                             help='指定开始时间 (YYYY-MM-DD)，优先于 --days')
     sync_parser.add_argument('--all', '-a', action='store_true',
