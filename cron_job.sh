@@ -1,6 +1,11 @@
 #!/bin/bash
 # Slurm Billing System - 定时任务脚本
 # 建议添加到 crontab: */15 * * * * /root/slurm-bill/cron_job.sh
+#
+# 同步策略：
+#   - COMPLETED/CD 状态：永久保存，不更新
+#   - 其他状态（PENDING/RUNNING/FAILED 等）：实时刷新
+#   - 默认同步最近 2 天的新作业
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="/var/log/slurm-bill/cron.log"
@@ -34,8 +39,9 @@ trap cleanup EXIT
 # 运行计费收集
 echo "$(date): 开始计费收集..." >> "$LOG_FILE"
 
-# 使用 sync 命令进行增量同步（默认只同步最近2天的新作业）
-python3 "$SCRIPT_DIR/slurm_bill.py" sync >> "$LOG_FILE" 2>&1
+# 使用 sync 命令增量同步（默认同步最近2天）
+# COMPLETED 状态永久保存不更新，其他状态实时刷新
+python3 "$SCRIPT_DIR/slurm_bill.py" sync --days 2 >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
